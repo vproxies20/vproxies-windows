@@ -3,6 +3,57 @@ namespace VProxies;
 public enum ProxyProtocol { HTTP, HTTPS, SOCKS4, SOCKS5 }
 public enum RoutingMode { FullSystem, RulesOnly, SelectedApplications }
 
+public sealed record GatewayInfo
+{
+    public string Id { get; init; } = "";
+    public string Name { get; init; } = "Gateway";
+    public string Region { get; init; } = "";
+    public string SyncMode { get; init; } = "";
+    public string DisplayName => string.IsNullOrWhiteSpace(Region) ? Name : $"{Name} · {Region}";
+}
+
+public sealed record AssignedProxy
+{
+    public long Id { get; init; }
+    public string GatewayId { get; init; } = "";
+    public string Name { get; init; } = "";
+    public string Protocol { get; init; } = "";
+    public string GroupName { get; init; } = "";
+    public string Status { get; init; } = "";
+    public string ExitIp { get; init; } = "";
+    public long? LatencyMs { get; init; }
+    public string DisplayName => string.IsNullOrWhiteSpace(Name) ? $"Proxy #{Id}" : Name;
+    public string LatencyText => LatencyMs is null ? "—" : $"{LatencyMs} ms";
+}
+
+public sealed record EntitlementInfo
+{
+    public bool Active { get; init; }
+    public string Status { get; init; } = "unknown";
+    public string EndsAt { get; init; } = "";
+    public long RemainingDays { get; init; }
+    public string PackageName { get; init; } = "";
+}
+
+public sealed record LoginResult
+{
+    public string UserName { get; init; } = "";
+    public EntitlementInfo Entitlement { get; init; } = new();
+}
+
+public sealed record RouteInfo
+{
+    public string GatewayId { get; init; } = "";
+    public long ProxyId { get; init; }
+    public long ExpiresAt { get; init; }
+    public string Username { get; init; } = "";
+    public string Password { get; init; } = "";
+    public string HttpHost { get; init; } = "";
+    public int HttpPort { get; init; }
+    public string Socks5Host { get; init; } = "";
+    public int Socks5Port { get; init; }
+}
+
 public sealed record ProxySettings
 {
     public ProxyProtocol Protocol { get; init; } = ProxyProtocol.SOCKS5;

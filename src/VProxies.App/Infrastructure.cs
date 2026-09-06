@@ -65,32 +65,93 @@ public sealed class VProxiesApiClient
 {
     private readonly HttpClient _http = new() { Timeout = TimeSpan.FromSeconds(20) };
     public string AccessToken { get; private set; } = "";
+    public bool IsSignedIn => !string.IsNullOrWhiteSpace(AccessToken);
 
-    public async Task LoginAsync(string apiBase, string identity, string password, CancellationToken cancellationToken = default)
+    public VProxiesApiClient() => _http.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+
+    public async Task<LoginResult> LoginAsync(string apiBase, string identity, string password, CancellationToken cancellationToken = default)
     {
         _http.BaseAddress = new Uri(apiBase.EndsWith('/') ? apiBase : apiBase + "/");
         var body = new Dictionary<string, string>
         {
-            [identity.Contains('@') ? "email" : "username"] = identity,
+            ["login"] = identity,
             ["password"] = password,
-            ["platform"] = "windows"
+            ["platform"] = "windows",
+            ["client_name"] = "VProxies Windows 0.9.0"
         };
-        using var requestContent = new StringContent(JsonSerializer.Serialize(body), Encoding.UTF8);
-        requestContent.Headers.ContentType = new MediaTypeHeaderValue("application/json");
-        using var response = await _http.PostAsync("auth/login", requestContent, cancellationToken);
-        var json = await response.Content.ReadAsStringAsync(cancellationToken);
-        if (!response.IsSuccessStatusCode) throw new InvalidOperationException($"Login failed ({(int)response.StatusCode}): {ReadMessage(json)}");
-        AccessToken = FindString(JsonDocument.Parse(json).RootElement, "access_token", "token") ?? throw new InvalidOperationException("Login response does not contain an access token.");
+        using var document = await SendJsonAsync(HttpMethod.Post, "auth/login", body, cancellationToken, authorize: false);
+        var root = document.RootElement;
+        AccessToken = GetString(root, "access_token", "token");
+        if (string.IsNullOrWhiteSpace(AccessToken)) throw new InvalidOperationException("Login response does not contain an access token.");
         _http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", AccessToken);
+        var user = TryProperty(root, "user", out var userNode) ? GetString(userNode, "username", "name", "email") : identity;
+        var entitlement = TryProperty(root, "entitlement", out var entitlementNode) ? ParseEntitlement(entitlementNode) : new EntitlementInfo();
+        return new LoginResult { UserName = string.IsNullOrWhiteSpace(user) ? identity : user, Entitlement = entitlement };
     }
 
-    public async Task<string> GetAsync(string relativeUrl, CancellationToken cancellationToken = default)
+    public async Task<IReadOnlyList<GatewayInfo>> GetGatewaysAsync(CancellationToken cancellationToken = default)
     {
-        using var response = await _http.GetAsync(relativeUrl, cancellationToken);
-        var body = await response.Content.ReadAsStringAsync(cancellationToken);
-        if (!response.IsSuccessStatusCode) throw new InvalidOperationException($"API {(int)response.StatusCode}: {ReadMessage(body)}");
-        return body;
+        using var document = await SendJsonAsync(HttpMethod.Get, "gateways", null, cancellationToken);
+        if (!TryProperty(document.RootElement, "gateways", out var items) || items.ValueKind != JsonValueKind.Array) return [];
+        return items.EnumerateArray().Select(x => new GatewayInfo
+        {
+            Id = GetScalar(x, "id"), Name = GetString(x, "name"), Region = GetString(x, "region"), SyncMode = GetString(x, "sync_mode")
+        }).Where(x => !string.IsNullOrWhiteSpace(x.Id)).ToArray();
     }
+
+    public async Task<IReadOnlyList<AssignedProxy>> GetProxiesAsync(string gatewayId, CancellationToken cancellationToken = default)
+    {
+        using var document = await SendJsonAsync(HttpMethod.Get, $"proxies?gateway_id={Uri.EscapeDataString(gatewayId)}", null, cancellationToken);
+        if (!TryProperty(document.RootElement, "proxies", out var items) || items.ValueKind != JsonValueKind.Array) return [];
+        return items.EnumerateArray().Select(x => new AssignedProxy
+        {
+            Id = GetInt64(x, "id"), GatewayId = GetScalar(x, "gateway_id") is var id && !string.IsNullOrWhiteSpace(id) ? id : gatewayId,
+            Name = GetString(x, "name"), Protocol = GetString(x, "protocol"), GroupName = GetString(x, "group_name", "group"),
+            Status = GetString(x, "status"), ExitIp = GetString(x, "exit_ip"), LatencyMs = GetNullableInt64(x, "latency_ms")
+        }).Where(x => x.Id > 0).ToArray();
+    }
+
+    public async Task<EntitlementInfo> GetEntitlementAsync(CancellationToken cancellationToken = default)
+    {
+        using var document = await SendJsonAsync(HttpMethod.Get, "entitlement", null, cancellationToken);
+        var root = document.RootElement;
+        return TryProperty(root, "data", out var data) ? ParseEntitlement(data) : ParseEntitlement(root);
+    }
+
+    public async Task<RouteInfo> CreateRouteAsync(string gatewayId, long proxyId, CancellationToken cancellationToken = default)
+    {
+        var body = new Dictionary<string, object> { ["gateway_id"] = gatewayId, ["proxy_id"] = proxyId };
+        using var document = await SendJsonAsync(HttpMethod.Post, "routes", body, cancellationToken);
+        if (!TryProperty(document.RootElement, "route", out var route)) throw new InvalidOperationException("Route response is missing route data.");
+        TryProperty(route, "http", out var http); TryProperty(route, "socks5", out var socks);
+        return new RouteInfo
+        {
+            GatewayId = GetScalar(route, "gateway_id") is var id && !string.IsNullOrWhiteSpace(id) ? id : gatewayId,
+            ProxyId = GetInt64(route, "proxy_id"), ExpiresAt = GetInt64(route, "expires_at"), Username = GetString(route, "username"), Password = GetString(route, "password"),
+            HttpHost = GetString(http, "host"), HttpPort = (int)GetInt64(http, "port"), Socks5Host = GetString(socks, "host"), Socks5Port = (int)GetInt64(socks, "port")
+        };
+    }
+
+    private async Task<JsonDocument> SendJsonAsync(HttpMethod method, string relativeUrl, object? body, CancellationToken cancellationToken, bool authorize = true)
+    {
+        if (authorize && !IsSignedIn) throw new InvalidOperationException("Sign in to your VProxies account first.");
+        using var request = new HttpRequestMessage(method, relativeUrl);
+        if (body is not null)
+        {
+            request.Content = new StringContent(JsonSerializer.Serialize(body), Encoding.UTF8);
+            request.Content.Headers.ContentType = new MediaTypeHeaderValue("application/json");
+        }
+        using var response = await _http.SendAsync(request, cancellationToken);
+        var json = await response.Content.ReadAsStringAsync(cancellationToken);
+        if (!response.IsSuccessStatusCode) throw new InvalidOperationException($"API {(int)response.StatusCode}: {ReadMessage(json)}");
+        return JsonDocument.Parse(json);
+    }
+
+    private static EntitlementInfo ParseEntitlement(JsonElement node) => new()
+    {
+        Active = GetBool(node, "active"), Status = GetString(node, "status"), EndsAt = GetString(node, "ends_at"),
+        RemainingDays = GetInt64(node, "remaining_days"), PackageName = GetString(node, "package_name")
+    };
 
     private static string ReadMessage(string json)
     {
@@ -107,6 +168,36 @@ public sealed class VProxiesApiClient
             }
         if (node.ValueKind == JsonValueKind.Array) foreach (var item in node.EnumerateArray()) { var nested = FindString(item, names); if (nested is not null) return nested; }
         return null;
+    }
+
+    private static bool TryProperty(JsonElement node, string name, out JsonElement value)
+    {
+        if (node.ValueKind == JsonValueKind.Object)
+            foreach (var property in node.EnumerateObject())
+                if (property.Name.Equals(name, StringComparison.OrdinalIgnoreCase)) { value = property.Value; return true; }
+        value = default; return false;
+    }
+    private static string GetString(JsonElement node, params string[] names)
+    {
+        foreach (var name in names) if (TryProperty(node, name, out var value) && value.ValueKind == JsonValueKind.String) return value.GetString() ?? "";
+        return "";
+    }
+    private static string GetScalar(JsonElement node, string name)
+    {
+        if (!TryProperty(node, name, out var value)) return "";
+        return value.ValueKind switch { JsonValueKind.String => value.GetString() ?? "", JsonValueKind.Number => value.GetRawText(), _ => "" };
+    }
+    private static long GetInt64(JsonElement node, string name)
+    {
+        if (!TryProperty(node, name, out var value)) return 0;
+        if (value.ValueKind == JsonValueKind.Number && value.TryGetInt64(out var number)) return number;
+        return value.ValueKind == JsonValueKind.String && long.TryParse(value.GetString(), out number) ? number : 0;
+    }
+    private static long? GetNullableInt64(JsonElement node, string name) => TryProperty(node, name, out var value) && value.ValueKind != JsonValueKind.Null ? GetInt64(node, name) : null;
+    private static bool GetBool(JsonElement node, string name)
+    {
+        if (!TryProperty(node, name, out var value)) return false;
+        return value.ValueKind == JsonValueKind.True || value.ValueKind == JsonValueKind.String && bool.TryParse(value.GetString(), out var parsed) && parsed;
     }
 }
 

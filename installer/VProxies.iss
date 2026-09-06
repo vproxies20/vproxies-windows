@@ -1,5 +1,5 @@
 #define MyAppName "VProxies"
-#define MyAppVersion "0.8.3"
+#define MyAppVersion "0.9.0"
 #define MyAppPublisher "VProxies"
 #define MyAppExeName "VProxies.exe"
 
@@ -19,6 +19,7 @@ Compression=lzma2/ultra64
 SolidCompression=yes
 WizardStyle=modern
 UninstallDisplayIcon={app}\{#MyAppExeName}
+SetupIconFile=..\src\VProxies.App\assets\vproxies.ico
 CloseApplications=yes
 RestartApplications=no
 

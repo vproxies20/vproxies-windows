@@ -1,4 +1,4 @@
-# VProxies for Windows — clean-room prototype 0.8.3
+# VProxies for Windows — clean-room prototype 0.9.0
 
 This is an independent Windows proxy-routing prototype. It does not contain, derive from, or redistribute Proxifier code or drivers.
 
@@ -10,7 +10,10 @@ This is an independent Windows proxy-routing prototype. It does not contain, der
 - Real proxy handshake test rather than a port-only check.
 - sing-box 1.14 configuration generation with a named `direct` outbound.
 - TUN auto-route, route-loop prevention, process rules and DNS hijacking.
-- Account sign-in scaffold for `https://api.vproxies.app/api/v1/`.
+- Account sign-in and entitlement check through `https://api.vproxies.app/api/v1/`.
+- Loads active Gateways and the proxies authorized for the signed-in account.
+- Requests short-lived HTTP/SOCKS5 routes without exposing the Gateway Management API key.
+- Branded VProxies interface and application/installer icon.
 - DPAPI encryption for saved proxy passwords.
 - Inno Setup packaging script.
 
@@ -18,8 +21,8 @@ This is an independent Windows proxy-routing prototype. It does not contain, der
 
 - The provided source has not been compiled in this Linux workspace because no Windows/.NET cross-build toolchain is installed here.
 - The build script downloads only pinned official sing-box and Wintun archives and rejects either archive if its SHA-256 differs.
-- Gateway/proxy/route assignment still needs to be mapped to the exact production API response schema. Manual proxy mode is implemented.
-- Version 0.8.3 runs the core under the elevated UI process. A hardened release should move the core into a signed Windows Service with authenticated IPC.
+- Gateway proxy mode follows the Website/Admin 0.7.0 client API contract. Real traffic still requires an active account, an enabled Gateway, assigned proxy groups, and a successful route response from production.
+- Version 0.9.0 adds the complete Web Admin → Gateway → assigned proxy → short-lived route flow and runs the core under the elevated UI process. A hardened release should move the core into a signed Windows Service with authenticated IPC.
 - Code signing is not included. Production installers and binaries should be signed with your own certificate.
 
 ## Build on Windows
@@ -41,12 +44,12 @@ Set-ExecutionPolicy -Scope Process Bypass
 The installer will be created at:
 
 ```text
-artifacts\VProxiesSetup-0.8.3-win-x64.exe
+artifacts\VProxiesSetup-0.9.0-win-x64.exe
 ```
 
 ### Build with GitHub Actions
 
-Push this directory to a GitHub repository, open **Actions → Build VProxies Windows Installer → Run workflow**, then download the `VProxiesSetup-0.8.3-win-x64` artifact. The workflow installs .NET 8 and Inno Setup, downloads the pinned networking components, verifies their hashes, builds the application, and uploads the resulting installer.
+Push this directory to a GitHub repository, open **Actions → Build VProxies Windows Installer → Run workflow**, then download the `VProxiesSetup-0.9.0-win-x64` artifact. The workflow installs .NET 8 and Inno Setup, downloads the pinned networking components, verifies their hashes, builds the application, and uploads the resulting installer.
 
 ## Safety behavior
 
