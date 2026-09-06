@@ -36,7 +36,7 @@ public partial class MainWindow : Window
         StateChanged += MainWindow_StateChanged;
         Closing += MainWindow_Closing;
         LoadSettings();
-        AppendLog("VProxies 1.0.0 ready. Sign in to load direct proxy connections.");
+        AppendLog("VProxies 1.0.1 ready. Sign in to load direct proxy connections.");
     }
 
     private async void Login_Click(object sender, RoutedEventArgs e)

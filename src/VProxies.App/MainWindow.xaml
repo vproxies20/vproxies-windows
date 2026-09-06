@@ -1,4 +1,4 @@
-<Window x:Class="VProxies.MainWindow" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" Title="VProxies" Width="1480" Height="900" MinWidth="1220" MinHeight="760" Icon="assets/vproxies.ico" Background="{StaticResource PageBrush}" Foreground="#F8FAFC" WindowStartupLocation="CenterScreen" FontFamily="Segoe UI">
+<Window x:Class="VProxies.MainWindow" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" Title="VProxies" Width="1480" Height="900" MinWidth="1220" MinHeight="760" Background="{StaticResource PageBrush}" Foreground="#F8FAFC" WindowStartupLocation="CenterScreen" FontFamily="Segoe UI">
   <Grid>
     <Grid.RowDefinitions><RowDefinition Height="84"/><RowDefinition Height="*"/></Grid.RowDefinitions>
     <Border Background="#091322" BorderBrush="#1F314A" BorderThickness="0,0,0,1" Padding="20,0">
