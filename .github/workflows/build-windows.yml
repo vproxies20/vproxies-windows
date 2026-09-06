@@ -29,10 +29,19 @@ jobs:
         shell: powershell
         run: .\build-windows.ps1
 
+      - name: Create installer checksum
+        shell: powershell
+        run: |
+          $file = "artifacts/VProxiesSetup-1.0.2-win-x64.exe"
+          $hash = (Get-FileHash $file -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  VProxiesSetup-1.0.2-win-x64.exe" | Set-Content "$file.sha256" -Encoding ascii
+
       - name: Upload installer
         uses: actions/upload-artifact@v4
         with:
-          name: VProxiesSetup-1.0.1-win-x64
-          path: artifacts/VProxiesSetup-1.0.1-win-x64.exe
+          name: VProxiesSetup-1.0.2-win-x64
+          path: |
+            artifacts/VProxiesSetup-1.0.2-win-x64.exe
+            artifacts/VProxiesSetup-1.0.2-win-x64.exe.sha256
           if-no-files-found: error
           retention-days: 14

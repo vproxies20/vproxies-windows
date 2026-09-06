@@ -77,7 +77,7 @@ public sealed class VProxiesApiClient
             ["login"] = identity,
             ["password"] = password,
             ["platform"] = "windows",
-            ["client_name"] = "VProxies Windows 1.0.1"
+            ["client_name"] = "VProxies Windows 1.0.2"
         };
         using var document = await SendJsonAsync(HttpMethod.Post, "auth/login", body, cancellationToken, authorize: false);
         var root = document.RootElement;
