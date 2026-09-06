@@ -12,7 +12,7 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent(); _core.Log += AppendLog; LoadSettings(); Closed += (_, _) => _core.Dispose();
-        AppendLog("VProxies 0.8.1 prototype ready. No proxy is active.");
+        AppendLog("VProxies 0.8.2 prototype ready. No proxy is active.");
     }
 
     private async void Login_Click(object sender, RoutedEventArgs e)

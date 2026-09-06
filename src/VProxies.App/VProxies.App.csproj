@@ -8,7 +8,7 @@
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <AssemblyName>VProxies</AssemblyName>
     <RootNamespace>VProxies</RootNamespace>
-    <Version>0.8.1</Version>
+    <Version>0.8.2</Version>
     <Company>VProxies</Company>
     <Product>VProxies for Windows</Product>
   </PropertyGroup>

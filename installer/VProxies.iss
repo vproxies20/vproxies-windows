@@ -1,5 +1,5 @@
 #define MyAppName "VProxies"
-#define MyAppVersion "0.8.1"
+#define MyAppVersion "0.8.2"
 #define MyAppPublisher "VProxies"
 #define MyAppExeName "VProxies.exe"
 
@@ -37,4 +37,4 @@ Name: "{autodesktop}\VProxies"; Filename: "{app}\{#MyAppExeName}"; Tasks: deskto
 Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription: "Additional icons:"
 
 [Run]
-Filename: "{app}\{#MyAppExeName}"; Description: "Launch VProxies"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\{#MyAppExeName}"; Description: "Launch VProxies"; Flags: nowait postinstall skipifsilent runascurrentuser
