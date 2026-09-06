@@ -72,7 +72,8 @@ public sealed class VProxiesApiClient
         var body = new Dictionary<string, string>
         {
             [identity.Contains('@') ? "email" : "username"] = identity,
-            ["password"] = password
+            ["password"] = password,
+            ["platform"] = "windows"
         };
         using var requestContent = new StringContent(JsonSerializer.Serialize(body), Encoding.UTF8);
         requestContent.Headers.ContentType = new MediaTypeHeaderValue("application/json");
