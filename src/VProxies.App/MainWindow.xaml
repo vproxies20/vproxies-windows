@@ -19,7 +19,7 @@
           </StackPanel>
         </StackPanel>
         <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
-          <TextBlock Text="0.9.2" Foreground="#7186A3" VerticalAlignment="Center" Margin="0,0,15,0"/>
+          <TextBlock Text="0.9.3" Foreground="#7186A3" VerticalAlignment="Center" Margin="0,0,15,0"/>
           <Border x:Name="StatusBadge" Background="#2B3449" CornerRadius="18" Padding="15,8">
             <StackPanel Orientation="Horizontal"><Ellipse Width="8" Height="8" Fill="#FF718B" Margin="0,0,8,0"/><TextBlock x:Name="StatusText" Text="Disconnected" Foreground="#FF9BA8" FontWeight="Bold"/></StackPanel>
           </Border>

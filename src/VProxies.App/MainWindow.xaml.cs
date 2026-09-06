@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
@@ -11,19 +12,25 @@ public partial class MainWindow : Window
     private readonly SettingsStore _store = new();
     private readonly VProxiesApiClient _api = new();
     private readonly SingBoxCore _core = new();
+    private readonly TrayIcon _trayIcon = new();
     private readonly DispatcherTimer _entitlementTimer = new() { Interval = TimeSpan.FromSeconds(30) };
     private readonly HashSet<string> _sensitiveLogValues = new(StringComparer.OrdinalIgnoreCase);
     private bool _loadingGateways;
     private bool _checkingEntitlement;
+    private bool _exitRequested;
+    private bool _shutdownInProgress;
 
     public MainWindow()
     {
         InitializeComponent();
         _core.Log += AppendLog;
         _entitlementTimer.Tick += EntitlementTimer_Tick;
+        _trayIcon.ShowRequested += RestoreFromTray;
+        _trayIcon.ExitRequested += async () => await ExitApplicationAsync();
+        StateChanged += MainWindow_StateChanged;
+        Closing += MainWindow_Closing;
         LoadSettings();
-        Closed += (_, _) => _core.Dispose();
-        AppendLog("VProxies 0.9.2 ready. Sign in to load direct proxy connections.");
+        AppendLog("VProxies 0.9.3 ready. Sign in to load direct proxy connections.");
     }
 
     private async void Login_Click(object sender, RoutedEventArgs e)
@@ -233,11 +240,16 @@ public partial class MainWindow : Window
         AppendLog($"Connected: {description} · {routing.Mode}.");
     }
 
-    private void Disconnect_Click(object sender, RoutedEventArgs e)
+    private async void Disconnect_Click(object sender, RoutedEventArgs e)
     {
-        _core.Stop();
-        SetConnected(false);
-        _sensitiveLogValues.Clear();
+        DisconnectButton.IsEnabled = false;
+        try
+        {
+            await _core.StopAsync();
+            SetConnected(false);
+            _sensitiveLogValues.Clear();
+        }
+        catch (Exception ex) { ShowError(ex); }
     }
 
     private ProxySettings ReadProxy()
@@ -340,7 +352,7 @@ public partial class MainWindow : Window
             if (!entitlement.Active)
             {
                 AppendLog($"Access is {entitlement.Status}; disconnecting.");
-                _core.Stop(); SetConnected(false); _sensitiveLogValues.Clear();
+                await _core.StopAsync(); SetConnected(false); _sensitiveLogValues.Clear();
             }
         }
         catch (Exception ex)
@@ -348,7 +360,7 @@ public partial class MainWindow : Window
             if (ex.Message.Contains("API 401", StringComparison.OrdinalIgnoreCase) || ex.Message.Contains("API 403", StringComparison.OrdinalIgnoreCase))
             {
                 AppendLog("Account session or entitlement was revoked; disconnecting.");
-                _core.Stop(); SetConnected(false); _sensitiveLogValues.Clear();
+                await _core.StopAsync(); SetConnected(false); _sensitiveLogValues.Clear();
             }
             else AppendLog("Entitlement check delayed: " + ex.Message);
         }
@@ -362,12 +374,57 @@ public partial class MainWindow : Window
         return $"{userName}\nAccess: {entitlement.Status}";
     }
 
-    private void AppendLog(string message) => Dispatcher.Invoke(() =>
+    private void AppendLog(string message)
     {
+        if (!Dispatcher.CheckAccess())
+        {
+            Dispatcher.BeginInvoke(() => AppendLog(message));
+            return;
+        }
+
         message = SanitizeMessage(message);
         LogBox.AppendText($"{DateTime.Now:HH:mm:ss}  {message}\r\n");
         LogBox.ScrollToEnd();
-    });
+    }
+
+    private void MainWindow_StateChanged(object? sender, EventArgs e)
+    {
+        if (WindowState != WindowState.Minimized) return;
+        Hide();
+        _trayIcon.ShowMinimizedNotice();
+    }
+
+    private void RestoreFromTray()
+    {
+        Dispatcher.BeginInvoke(() =>
+        {
+            Show();
+            WindowState = WindowState.Normal;
+            Activate();
+        });
+    }
+
+    private async void MainWindow_Closing(object? sender, CancelEventArgs e)
+    {
+        if (_exitRequested) return;
+        e.Cancel = true;
+        await ExitApplicationAsync();
+    }
+
+    private async Task ExitApplicationAsync()
+    {
+        if (_shutdownInProgress) return;
+        _shutdownInProgress = true;
+        _entitlementTimer.Stop();
+        try { await _core.StopAsync(); }
+        catch (Exception ex) { AppendLog("Shutdown cleanup warning: " + ex.Message); }
+        _sensitiveLogValues.Clear();
+        _core.Dispose();
+        _trayIcon.Dispose();
+        _exitRequested = true;
+        Close();
+        Application.Current.Shutdown();
+    }
 
     private void ShowError(Exception ex)
     {

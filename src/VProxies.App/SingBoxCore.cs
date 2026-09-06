@@ -62,6 +62,8 @@ public static class SingBoxConfigBuilder
 public sealed class SingBoxCore : IDisposable
 {
     private Process? _process;
+    private readonly ChildProcessJob _childProcessJob = new();
+    private readonly SemaphoreSlim _stopGate = new(1, 1);
     public event Action<string>? Log;
     public bool IsRunning => _process is { HasExited: false };
     private string RuntimeDir => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "VProxies", "runtime");
@@ -77,24 +79,53 @@ public sealed class SingBoxCore : IDisposable
         try
         {
             await RunCheck(configPath);
-            _process = new Process { StartInfo = CreateStartInfo($"run -c \"{configPath}\"") , EnableRaisingEvents = true };
-            _process.OutputDataReceived += (_, e) => { if (e.Data is not null) Log?.Invoke(e.Data); };
-            _process.ErrorDataReceived += (_, e) => { if (e.Data is not null) Log?.Invoke(e.Data); };
-            _process.Exited += (_, _) => Log?.Invoke($"Core exited with code {_process?.ExitCode}.");
-            _process.Start(); _process.BeginOutputReadLine(); _process.BeginErrorReadLine();
+            var process = new Process { StartInfo = CreateStartInfo($"run -c \"{configPath}\"") , EnableRaisingEvents = true };
+            process.OutputDataReceived += (_, e) => { if (e.Data is not null) Log?.Invoke(e.Data); };
+            process.ErrorDataReceived += (_, e) => { if (e.Data is not null) Log?.Invoke(e.Data); };
+            process.Exited += (_, _) => { if (ReferenceEquals(_process, process)) Log?.Invoke($"Core exited with code {process.ExitCode}."); };
+            process.Start();
+            _process = process;
+            try { _childProcessJob.Add(process); }
+            catch
+            {
+                try { process.Kill(true); } catch { }
+                _process = null;
+                process.Dispose();
+                throw;
+            }
+            process.BeginOutputReadLine(); process.BeginErrorReadLine();
             await Task.Delay(1200);
-            if (_process.HasExited) throw new InvalidOperationException($"sing-box stopped during startup (exit {_process.ExitCode}).");
-            FlushDns(); Log?.Invoke("Core started and DNS cache flushed.");
+            if (process.HasExited) throw new InvalidOperationException($"sing-box stopped during startup (exit {process.ExitCode}).");
+            await FlushDnsAsync(); Log?.Invoke("Core started and DNS cache flushed.");
         }
         finally
         {
             try { File.Delete(configPath); } catch { }
         }
     }
-    public void Stop()
+    public async Task StopAsync()
     {
-        if (_process is { HasExited: false }) { try { _process.Kill(true); _process.WaitForExit(5000); } catch { } }
-        _process?.Dispose(); _process = null; CleanupConfigFiles(); FlushDns(); Log?.Invoke("Core stopped and network state released.");
+        await _stopGate.WaitAsync();
+        try
+        {
+            var process = Interlocked.Exchange(ref _process, null);
+            if (process is not null)
+            {
+                try
+                {
+                    if (!process.HasExited) process.Kill(true);
+                    using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+                    try { await process.WaitForExitAsync(timeout.Token); }
+                    catch (OperationCanceledException) { try { if (!process.HasExited) process.Kill(true); } catch { } }
+                }
+                catch { }
+                finally { process.Dispose(); }
+            }
+            CleanupConfigFiles();
+            await FlushDnsAsync();
+            Log?.Invoke("Core stopped and network state released.");
+        }
+        finally { _stopGate.Release(); }
     }
     private async Task RunCheck(string path)
     {
@@ -112,6 +143,28 @@ public sealed class SingBoxCore : IDisposable
         }
         catch { }
     }
-    private static void FlushDns() { try { Process.Start(new ProcessStartInfo("ipconfig.exe", "/flushdns") { UseShellExecute = false, CreateNoWindow = true })?.WaitForExit(3000); } catch { } }
-    public void Dispose() => Stop();
+    private static async Task FlushDnsAsync()
+    {
+        try
+        {
+            using var process = Process.Start(new ProcessStartInfo("ipconfig.exe", "/flushdns") { UseShellExecute = false, CreateNoWindow = true });
+            if (process is null) return;
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(3));
+            try { await process.WaitForExitAsync(timeout.Token); }
+            catch (OperationCanceledException) { try { if (!process.HasExited) process.Kill(true); } catch { } }
+        }
+        catch { }
+    }
+    public void Dispose()
+    {
+        var process = Interlocked.Exchange(ref _process, null);
+        if (process is not null)
+        {
+            try { if (!process.HasExited) process.Kill(true); } catch { }
+            process.Dispose();
+        }
+        CleanupConfigFiles();
+        _childProcessJob.Dispose();
+        _stopGate.Dispose();
+    }
 }

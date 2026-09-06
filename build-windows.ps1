@@ -60,4 +60,4 @@ if (-not (Test-Path $iscc)) { throw 'Inno Setup 6 was not found.' }
 & $iscc (Join-Path $root 'installer\VProxies.iss')
 if ($LASTEXITCODE -ne 0) { throw "Inno Setup failed with exit code $LASTEXITCODE." }
 
-Get-FileHash (Join-Path $root 'artifacts\VProxiesSetup-0.9.2-win-x64.exe') -Algorithm SHA256
+Get-FileHash (Join-Path $root 'artifacts\VProxiesSetup-0.9.3-win-x64.exe') -Algorithm SHA256

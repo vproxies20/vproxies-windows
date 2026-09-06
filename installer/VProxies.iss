@@ -1,5 +1,5 @@
 #define MyAppName "VProxies"
-#define MyAppVersion "0.9.2"
+#define MyAppVersion "0.9.3"
 #define MyAppPublisher "VProxies"
 #define MyAppExeName "VProxies.exe"
 

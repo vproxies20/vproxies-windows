@@ -3,12 +3,13 @@
     <OutputType>WinExe</OutputType>
     <TargetFramework>net8.0-windows</TargetFramework>
     <UseWPF>true</UseWPF>
+    <UseWindowsForms>true</UseWindowsForms>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <AssemblyName>VProxies</AssemblyName>
     <RootNamespace>VProxies</RootNamespace>
-    <Version>0.9.2</Version>
+    <Version>0.9.3</Version>
     <Company>VProxies</Company>
     <Product>VProxies for Windows</Product>
     <ApplicationIcon>assets\vproxies.ico</ApplicationIcon>
