@@ -1,6 +1,7 @@
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
+using System.Windows.Threading;
 
 namespace VProxies;
 
@@ -10,15 +11,19 @@ public partial class MainWindow : Window
     private readonly SettingsStore _store = new();
     private readonly VProxiesApiClient _api = new();
     private readonly SingBoxCore _core = new();
+    private readonly DispatcherTimer _entitlementTimer = new() { Interval = TimeSpan.FromSeconds(30) };
+    private readonly HashSet<string> _sensitiveLogValues = new(StringComparer.OrdinalIgnoreCase);
     private bool _loadingGateways;
+    private bool _checkingEntitlement;
 
     public MainWindow()
     {
         InitializeComponent();
         _core.Log += AppendLog;
+        _entitlementTimer.Tick += EntitlementTimer_Tick;
         LoadSettings();
         Closed += (_, _) => _core.Dispose();
-        AppendLog("VProxies 0.9.0 ready. Sign in to load Gateway proxies.");
+        AppendLog("VProxies 0.9.1 ready. Sign in to load direct proxy connections.");
     }
 
     private async void Login_Click(object sender, RoutedEventArgs e)
@@ -113,30 +118,40 @@ public partial class MainWindow : Window
             var entitlement = await _api.GetEntitlementAsync();
             if (!entitlement.Active) throw new InvalidOperationException($"Your VProxies access is {entitlement.Status}. Renew or activate the account before connecting.");
 
-            AppendLog($"Requesting a short-lived route for {selected.DisplayName}...");
-            var route = await _api.CreateRouteAsync(gateway.Id, selected.Id);
-            var useSocks = GatewayProtocolBox.SelectedIndex == 1;
-            var host = useSocks ? route.Socks5Host : route.HttpHost;
-            var port = useSocks ? route.Socks5Port : route.HttpPort;
-            if (string.IsNullOrWhiteSpace(host) || port is < 1 or > 65535)
-                throw new InvalidOperationException($"The Gateway did not return a valid {(useSocks ? "SOCKS5" : "HTTP")} route.");
+            AppendLog($"Requesting a direct configuration for {selected.DisplayName}...");
+            var connection = await _api.CreateConnectionAsync(gateway.Id, selected.Id);
+            if (!connection.Mode.Equals("direct", StringComparison.OrdinalIgnoreCase))
+                throw new InvalidOperationException($"Unsupported delivery mode: {connection.Mode}. This client accepts direct mode only.");
+            if (string.IsNullOrWhiteSpace(connection.Host) || connection.Port is < 1 or > 65535)
+                throw new InvalidOperationException("The API did not return a valid direct proxy endpoint.");
+
+            var protocol = ResolveDirectProtocol(connection);
+            if (connection.Protocol.Equals("https", StringComparison.OrdinalIgnoreCase))
+                AppendLog("HTTPS source label is using HTTP CONNECT transport; upstream TLS metadata is not advertised by the API.");
 
             var proxy = new ProxySettings
             {
-                Protocol = useSocks ? ProxyProtocol.SOCKS5 : ProxyProtocol.HTTP,
-                Host = host,
-                Port = port,
-                Username = route.Username,
-                Password = route.Password
+                Protocol = protocol,
+                Host = connection.Host,
+                Port = connection.Port,
+                Username = connection.Username,
+                Password = connection.Password
             };
-            await ConnectProxyAsync(proxy, $"Gateway {gateway.Name} · {selected.DisplayName}", saveManualSettings: false);
-            var expiry = DateTimeOffset.FromUnixTimeSeconds(route.ExpiresAt).ToLocalTime();
-            AppendLog($"Route active until {expiry:yyyy-MM-dd HH:mm:ss zzz}. Credentials were not saved.");
+            var location = string.Join(", ", new[] { connection.City, connection.Country }.Where(x => !string.IsNullOrWhiteSpace(x)));
+            var description = $"{selected.DisplayName} · {(string.IsNullOrWhiteSpace(location) ? "Chưa xác định" : location)} · {connection.Protocol.ToUpperInvariant()}";
+            await ConnectProxyAsync(proxy, description, saveManualSettings: false, concealEndpoint: !connection.ShowHostPort);
+            if (connection.ExpiresAt > 0)
+            {
+                var expiry = DateTimeOffset.FromUnixTimeSeconds(connection.ExpiresAt).ToLocalTime();
+                AppendLog($"Direct configuration valid until {expiry:yyyy-MM-dd HH:mm:ss zzz}. Credentials were not saved.");
+            }
+            else AppendLog("Direct configuration active. Credentials were not saved.");
         }
         catch (Exception ex)
         {
             SetConnected(false);
             ShowError(ex);
+            _sensitiveLogValues.Clear();
         }
         finally
         {
@@ -160,7 +175,7 @@ public partial class MainWindow : Window
         try
         {
             var proxy = ReadProxy();
-            await ConnectProxyAsync(proxy, $"{proxy.Protocol} {proxy.Host}:{proxy.Port}", saveManualSettings: true);
+            await ConnectProxyAsync(proxy, $"{proxy.Protocol} {proxy.Host}:{proxy.Port}", saveManualSettings: true, concealEndpoint: false);
         }
         catch (Exception ex)
         {
@@ -173,10 +188,16 @@ public partial class MainWindow : Window
         }
     }
 
-    private async Task ConnectProxyAsync(ProxySettings proxy, string description, bool saveManualSettings)
+    private async Task ConnectProxyAsync(ProxySettings proxy, string description, bool saveManualSettings, bool concealEndpoint)
     {
         var routing = ReadRouting();
         if (saveManualSettings) SaveSettings(proxy, routing);
+        _sensitiveLogValues.Clear();
+        if (concealEndpoint)
+        {
+            foreach (var value in new[] { proxy.Host, $"{proxy.Host}:{proxy.Port}", proxy.Username, proxy.Password })
+                if (!string.IsNullOrWhiteSpace(value) && value.Length >= 3) _sensitiveLogValues.Add(value);
+        }
         var config = SingBoxConfigBuilder.Build(proxy, routing);
         await _core.StartAsync(config);
         SetConnected(true);
@@ -187,6 +208,7 @@ public partial class MainWindow : Window
     {
         _core.Stop();
         SetConnected(false);
+        _sensitiveLogValues.Clear();
     }
 
     private ProxySettings ReadProxy()
@@ -252,6 +274,49 @@ public partial class MainWindow : Window
         ConnectButton.IsEnabled = !connected;
         DisconnectButton.IsEnabled = connected;
         GatewayConnectButton.IsEnabled = !connected && ProxyGrid.SelectedItem is AssignedProxy;
+        if (connected && _api.IsSignedIn) _entitlementTimer.Start(); else _entitlementTimer.Stop();
+    }
+
+    private static ProxyProtocol ResolveDirectProtocol(DirectConnectionInfo connection)
+    {
+        var advertised = connection.Protocol.Trim().ToLowerInvariant();
+        var allowed = connection.Protocols.Select(x => x.Trim().ToLowerInvariant()).Where(x => x.Length > 0).ToArray();
+        if (allowed.Length > 0 && !allowed.Contains(advertised)) advertised = allowed.FirstOrDefault(IsSupportedDirectProtocol) ?? advertised;
+        return advertised switch
+        {
+            "http" => ProxyProtocol.HTTP,
+            "https" => ProxyProtocol.HTTP,
+            "socks4" => ProxyProtocol.SOCKS4,
+            "socks5" => ProxyProtocol.SOCKS5,
+            _ => throw new InvalidOperationException($"Unsupported direct proxy protocol: {connection.Protocol}")
+        };
+    }
+
+    private static bool IsSupportedDirectProtocol(string protocol) => protocol is "http" or "https" or "socks4" or "socks5";
+
+    private async void EntitlementTimer_Tick(object? sender, EventArgs e)
+    {
+        if (_checkingEntitlement || !_core.IsRunning) return;
+        _checkingEntitlement = true;
+        try
+        {
+            var entitlement = await _api.GetEntitlementAsync();
+            if (!entitlement.Active)
+            {
+                AppendLog($"Access is {entitlement.Status}; disconnecting.");
+                _core.Stop(); SetConnected(false); _sensitiveLogValues.Clear();
+            }
+        }
+        catch (Exception ex)
+        {
+            if (ex.Message.Contains("API 401", StringComparison.OrdinalIgnoreCase) || ex.Message.Contains("API 403", StringComparison.OrdinalIgnoreCase))
+            {
+                AppendLog("Account session or entitlement was revoked; disconnecting.");
+                _core.Stop(); SetConnected(false); _sensitiveLogValues.Clear();
+            }
+            else AppendLog("Entitlement check delayed: " + ex.Message);
+        }
+        finally { _checkingEntitlement = false; }
     }
 
     private static string FormatAccountStatus(string userName, EntitlementInfo entitlement)
@@ -263,13 +328,21 @@ public partial class MainWindow : Window
 
     private void AppendLog(string message) => Dispatcher.Invoke(() =>
     {
+        message = SanitizeMessage(message);
         LogBox.AppendText($"{DateTime.Now:HH:mm:ss}  {message}\r\n");
         LogBox.ScrollToEnd();
     });
 
     private void ShowError(Exception ex)
     {
-        AppendLog("ERROR: " + ex.Message);
-        MessageBox.Show(this, ex.Message, "VProxies", MessageBoxButton.OK, MessageBoxImage.Error);
+        var message = SanitizeMessage(ex.Message);
+        AppendLog("ERROR: " + message);
+        MessageBox.Show(this, message, "VProxies", MessageBoxButton.OK, MessageBoxImage.Error);
+    }
+
+    private string SanitizeMessage(string message)
+    {
+        foreach (var value in _sensitiveLogValues) message = message.Replace(value, "[hidden]", StringComparison.OrdinalIgnoreCase);
+        return message;
     }
 }

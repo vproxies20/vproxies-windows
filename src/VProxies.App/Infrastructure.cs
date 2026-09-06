@@ -77,7 +77,7 @@ public sealed class VProxiesApiClient
             ["login"] = identity,
             ["password"] = password,
             ["platform"] = "windows",
-            ["client_name"] = "VProxies Windows 0.9.0"
+            ["client_name"] = "VProxies Windows 0.9.1"
         };
         using var document = await SendJsonAsync(HttpMethod.Post, "auth/login", body, cancellationToken, authorize: false);
         var root = document.RootElement;
@@ -102,12 +102,20 @@ public sealed class VProxiesApiClient
     public async Task<IReadOnlyList<AssignedProxy>> GetProxiesAsync(string gatewayId, CancellationToken cancellationToken = default)
     {
         using var document = await SendJsonAsync(HttpMethod.Get, $"proxies?gateway_id={Uri.EscapeDataString(gatewayId)}", null, cancellationToken);
-        if (!TryProperty(document.RootElement, "proxies", out var items) || items.ValueKind != JsonValueKind.Array) return [];
-        return items.EnumerateArray().Select(x => new AssignedProxy
+        var root = document.RootElement;
+        if (!TryProperty(root, "proxies", out var items) || items.ValueKind != JsonValueKind.Array) return [];
+        var deliveryVisible = TryProperty(root, "delivery", out var delivery) && GetBool(delivery, "show_host_port");
+        return items.EnumerateArray().Select(x =>
         {
-            Id = GetInt64(x, "id"), GatewayId = GetScalar(x, "gateway_id") is var id && !string.IsNullOrWhiteSpace(id) ? id : gatewayId,
-            Name = GetString(x, "name"), Protocol = GetString(x, "protocol"), GroupName = GetString(x, "group_name", "group"),
-            Status = GetString(x, "status"), ExitIp = GetString(x, "exit_ip"), LatencyMs = GetNullableInt64(x, "latency_ms")
+            var visible = TryProperty(x, "visibility", out var visibility) ? GetBool(visibility, "show_host_port") : deliveryVisible;
+            return new AssignedProxy
+            {
+                Id = GetInt64(x, "id"), GatewayId = GetScalar(x, "gateway_id") is var id && !string.IsNullOrWhiteSpace(id) ? id : gatewayId,
+                Name = GetString(x, "name"), Protocol = GetString(x, "protocol"), Protocols = GetStrings(x, "protocols"), GroupName = GetString(x, "group_name", "group"),
+                Status = GetString(x, "status"), CountryCode = GetString(x, "country_code"), Country = GetString(x, "country"), City = GetString(x, "city"),
+                Host = visible ? GetString(x, "host") : "", Port = visible ? (int)GetInt64(x, "port") : 0,
+                ExitIp = visible ? GetString(x, "exit_ip") : "", ShowHostPort = visible, LatencyMs = GetNullableInt64(x, "latency_ms")
+            };
         }).Where(x => x.Id > 0).ToArray();
     }
 
@@ -118,17 +126,21 @@ public sealed class VProxiesApiClient
         return TryProperty(root, "data", out var data) ? ParseEntitlement(data) : ParseEntitlement(root);
     }
 
-    public async Task<RouteInfo> CreateRouteAsync(string gatewayId, long proxyId, CancellationToken cancellationToken = default)
+    public async Task<DirectConnectionInfo> CreateConnectionAsync(string gatewayId, long proxyId, CancellationToken cancellationToken = default)
     {
         var body = new Dictionary<string, object> { ["gateway_id"] = gatewayId, ["proxy_id"] = proxyId };
-        using var document = await SendJsonAsync(HttpMethod.Post, "routes", body, cancellationToken);
-        if (!TryProperty(document.RootElement, "route", out var route)) throw new InvalidOperationException("Route response is missing route data.");
-        TryProperty(route, "http", out var http); TryProperty(route, "socks5", out var socks);
-        return new RouteInfo
+        using var document = await SendJsonAsync(HttpMethod.Post, "connections", body, cancellationToken);
+        var root = document.RootElement;
+        if (!TryProperty(root, "connection", out var envelope)) throw new InvalidOperationException("Connection response is missing its envelope.");
+        if (!TryProperty(envelope, "connection", out var source)) throw new InvalidOperationException("Connection response is missing source proxy data.");
+        TryProperty(envelope, "visibility", out var visibility); TryProperty(envelope, "location", out var location);
+        return new DirectConnectionInfo
         {
-            GatewayId = GetScalar(route, "gateway_id") is var id && !string.IsNullOrWhiteSpace(id) ? id : gatewayId,
-            ProxyId = GetInt64(route, "proxy_id"), ExpiresAt = GetInt64(route, "expires_at"), Username = GetString(route, "username"), Password = GetString(route, "password"),
-            HttpHost = GetString(http, "host"), HttpPort = (int)GetInt64(http, "port"), Socks5Host = GetString(socks, "host"), Socks5Port = (int)GetInt64(socks, "port")
+            Mode = GetString(envelope, "mode"), GatewayId = GetScalar(envelope, "gateway_id") is var id && !string.IsNullOrWhiteSpace(id) ? id : gatewayId,
+            ProxyId = GetInt64(envelope, "proxy_id"), ExpiresAt = GetInt64(envelope, "expires_at"), ShowHostPort = GetBool(visibility, "show_host_port"),
+            CountryCode = GetString(location, "country_code"), Country = GetString(location, "country"), Region = GetString(location, "region"), City = GetString(location, "city"),
+            Host = GetString(source, "host"), Port = (int)GetInt64(source, "port"), Username = GetString(source, "username"), Password = GetString(source, "password"),
+            Protocol = GetString(source, "protocol"), Protocols = GetStrings(source, "protocols")
         };
     }
 
@@ -186,6 +198,11 @@ public sealed class VProxiesApiClient
     {
         if (!TryProperty(node, name, out var value)) return "";
         return value.ValueKind switch { JsonValueKind.String => value.GetString() ?? "", JsonValueKind.Number => value.GetRawText(), _ => "" };
+    }
+    private static string[] GetStrings(JsonElement node, string name)
+    {
+        if (!TryProperty(node, name, out var value) || value.ValueKind != JsonValueKind.Array) return [];
+        return value.EnumerateArray().Where(x => x.ValueKind == JsonValueKind.String).Select(x => x.GetString() ?? "").Where(x => x.Length > 0).ToArray();
     }
     private static long GetInt64(JsonElement node, string name)
     {

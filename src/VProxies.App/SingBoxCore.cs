@@ -71,20 +71,30 @@ public sealed class SingBoxCore : IDisposable
     {
         if (IsRunning) return;
         if (!File.Exists(Executable)) throw new FileNotFoundException("Place sing-box.exe in the runtime folder.", Executable);
-        Directory.CreateDirectory(RuntimeDir); var configPath = Path.Combine(RuntimeDir, "config.json"); await File.WriteAllTextAsync(configPath, config);
-        await RunCheck(configPath);
-        _process = new Process { StartInfo = CreateStartInfo($"run -c \"{configPath}\"") , EnableRaisingEvents = true };
-        _process.OutputDataReceived += (_, e) => { if (e.Data is not null) Log?.Invoke(e.Data); };
-        _process.ErrorDataReceived += (_, e) => { if (e.Data is not null) Log?.Invoke(e.Data); };
-        _process.Exited += (_, _) => Log?.Invoke($"Core exited with code {_process?.ExitCode}.");
-        _process.Start(); _process.BeginOutputReadLine(); _process.BeginErrorReadLine();
-        await Task.Delay(1200); if (_process.HasExited) throw new InvalidOperationException($"sing-box stopped during startup (exit {_process.ExitCode}).");
-        FlushDns(); Log?.Invoke("Core started and DNS cache flushed.");
+        Directory.CreateDirectory(RuntimeDir);
+        var configPath = Path.Combine(RuntimeDir, $"config-{Guid.NewGuid():N}.json");
+        await File.WriteAllTextAsync(configPath, config);
+        try
+        {
+            await RunCheck(configPath);
+            _process = new Process { StartInfo = CreateStartInfo($"run -c \"{configPath}\"") , EnableRaisingEvents = true };
+            _process.OutputDataReceived += (_, e) => { if (e.Data is not null) Log?.Invoke(e.Data); };
+            _process.ErrorDataReceived += (_, e) => { if (e.Data is not null) Log?.Invoke(e.Data); };
+            _process.Exited += (_, _) => Log?.Invoke($"Core exited with code {_process?.ExitCode}.");
+            _process.Start(); _process.BeginOutputReadLine(); _process.BeginErrorReadLine();
+            await Task.Delay(1200);
+            if (_process.HasExited) throw new InvalidOperationException($"sing-box stopped during startup (exit {_process.ExitCode}).");
+            FlushDns(); Log?.Invoke("Core started and DNS cache flushed.");
+        }
+        finally
+        {
+            try { File.Delete(configPath); } catch { }
+        }
     }
     public void Stop()
     {
         if (_process is { HasExited: false }) { try { _process.Kill(true); _process.WaitForExit(5000); } catch { } }
-        _process?.Dispose(); _process = null; FlushDns(); Log?.Invoke("Core stopped and network state released.");
+        _process?.Dispose(); _process = null; CleanupConfigFiles(); FlushDns(); Log?.Invoke("Core stopped and network state released.");
     }
     private async Task RunCheck(string path)
     {
@@ -93,6 +103,15 @@ public sealed class SingBoxCore : IDisposable
         if (check.ExitCode != 0) throw new InvalidOperationException("Invalid sing-box config: " + (stderr + stdout).Trim());
     }
     private ProcessStartInfo CreateStartInfo(string args) => new(Executable, args) { UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true, WorkingDirectory = RuntimeDir };
+    private void CleanupConfigFiles()
+    {
+        try
+        {
+            if (!Directory.Exists(RuntimeDir)) return;
+            foreach (var path in Directory.EnumerateFiles(RuntimeDir, "config*.json")) try { File.Delete(path); } catch { }
+        }
+        catch { }
+    }
     private static void FlushDns() { try { Process.Start(new ProcessStartInfo("ipconfig.exe", "/flushdns") { UseShellExecute = false, CreateNoWindow = true })?.WaitForExit(3000); } catch { } }
     public void Dispose() => Stop();
 }

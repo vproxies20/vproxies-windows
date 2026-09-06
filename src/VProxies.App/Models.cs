@@ -18,12 +18,28 @@ public sealed record AssignedProxy
     public string GatewayId { get; init; } = "";
     public string Name { get; init; } = "";
     public string Protocol { get; init; } = "";
+    public string[] Protocols { get; init; } = [];
     public string GroupName { get; init; } = "";
     public string Status { get; init; } = "";
     public string ExitIp { get; init; } = "";
+    public string Host { get; init; } = "";
+    public int Port { get; init; }
+    public string CountryCode { get; init; } = "";
+    public string Country { get; init; } = "";
+    public string City { get; init; } = "";
+    public bool ShowHostPort { get; init; }
     public long? LatencyMs { get; init; }
     public string DisplayName => string.IsNullOrWhiteSpace(Name) ? $"Proxy #{Id}" : Name;
     public string LatencyText => LatencyMs is null ? "—" : $"{LatencyMs} ms";
+    public string LocationText
+    {
+        get
+        {
+            var value = string.Join(", ", new[] { City, Country }.Where(x => !string.IsNullOrWhiteSpace(x)));
+            return string.IsNullOrWhiteSpace(value) ? "Chưa xác định" : value;
+        }
+    }
+    public string EndpointText => ShowHostPort && !string.IsNullOrWhiteSpace(Host) && Port > 0 ? $"{Host}:{Port}" : "Hidden";
 }
 
 public sealed record EntitlementInfo
@@ -41,17 +57,23 @@ public sealed record LoginResult
     public EntitlementInfo Entitlement { get; init; } = new();
 }
 
-public sealed record RouteInfo
+public sealed record DirectConnectionInfo
 {
+    public string Mode { get; init; } = "";
     public string GatewayId { get; init; } = "";
     public long ProxyId { get; init; }
     public long ExpiresAt { get; init; }
+    public bool ShowHostPort { get; init; }
+    public string CountryCode { get; init; } = "";
+    public string Country { get; init; } = "";
+    public string Region { get; init; } = "";
+    public string City { get; init; } = "";
+    public string Host { get; init; } = "";
+    public int Port { get; init; }
     public string Username { get; init; } = "";
     public string Password { get; init; } = "";
-    public string HttpHost { get; init; } = "";
-    public int HttpPort { get; init; }
-    public string Socks5Host { get; init; } = "";
-    public int Socks5Port { get; init; }
+    public string Protocol { get; init; } = "";
+    public string[] Protocols { get; init; } = [];
 }
 
 public sealed record ProxySettings
