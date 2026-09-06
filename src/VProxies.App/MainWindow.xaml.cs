@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using System.Diagnostics;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Documents;
@@ -17,6 +18,7 @@ public partial class MainWindow : Window
     private readonly SettingsStore _store = new();
     private readonly VProxiesApiClient _api = new();
     private readonly SingBoxCore _core = new();
+    private readonly UpdateService _updates = new();
     private readonly TrayIcon _trayIcon = new();
     private readonly DispatcherTimer _entitlementTimer = new() { Interval = TimeSpan.FromSeconds(30) };
     private readonly HashSet<string> _sensitiveLogValues = new(StringComparer.OrdinalIgnoreCase);
@@ -25,6 +27,7 @@ public partial class MainWindow : Window
     private bool _checkingEntitlement;
     private bool _exitRequested;
     private bool _shutdownInProgress;
+    private bool _checkingForUpdates;
 
     public MainWindow()
     {
@@ -35,8 +38,90 @@ public partial class MainWindow : Window
         _trayIcon.ExitRequested += async () => await ExitApplicationAsync();
         StateChanged += MainWindow_StateChanged;
         Closing += MainWindow_Closing;
+        Loaded += async (_, _) => { await Task.Delay(1800); await CheckForUpdatesAsync(silentWhenCurrent: true); };
         LoadSettings();
-        AppendLog("VProxies 1.0.1 ready. Sign in to load direct proxy connections.");
+        AppendLog("VProxies 1.0.2 ready. Sign in to load direct proxy connections.");
+    }
+
+    private async void CheckForUpdates_Click(object sender, RoutedEventArgs e) => await CheckForUpdatesAsync(silentWhenCurrent: false);
+
+    private async Task CheckForUpdatesAsync(bool silentWhenCurrent)
+    {
+        if (_checkingForUpdates || _shutdownInProgress) return;
+        _checkingForUpdates = true;
+        UpdateButton.IsEnabled = false;
+        try
+        {
+            var update = await _updates.CheckAsync();
+            if (update is null)
+            {
+                if (!silentWhenCurrent) System.Windows.MessageBox.Show(this, $"VProxies {UpdateService.CurrentVersion.ToString(3)} is up to date.", "VProxies Update", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+
+            var choice = System.Windows.MessageBox.Show(this, $"VProxies {update.Version.ToString(3)} is available.\n\nDownload, verify, and install it now?", "VProxies Update", MessageBoxButton.YesNo, MessageBoxImage.Information);
+            if (choice != MessageBoxResult.Yes) return;
+            AppendLog($"Downloading verified update {update.Version.ToString(3)} from GitHub...");
+            UpdateButton.Content = "DOWNLOADING";
+            var installerPath = await _updates.DownloadAndVerifyAsync(update);
+            AppendLog("Update verified. Starting installer...");
+            Process.Start(new ProcessStartInfo(installerPath, "/SILENT /CLOSEAPPLICATIONS /NORESTART") { UseShellExecute = true, Verb = "runas" });
+            await ExitApplicationAsync();
+        }
+        catch (Exception ex)
+        {
+            if (!silentWhenCurrent) ShowError(new InvalidOperationException("Update check failed: " + ex.Message, ex));
+            else AppendLog("Update check delayed: " + ex.Message);
+        }
+        finally
+        {
+            _checkingForUpdates = false;
+            if (!_shutdownInProgress)
+            {
+                UpdateButton.Content = UpdateService.CurrentVersion.ToString(3);
+                UpdateButton.IsEnabled = true;
+            }
+        }
+    }
+
+    private void SidebarNavigation_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not WpfButton button) return;
+        SetActiveSidebarButton(button);
+
+        switch (button.Tag as string)
+        {
+            case "fleet":
+                ProxyGrid.BringIntoView();
+                ProxyGrid.Focus();
+                break;
+            case "account":
+                IdentityBox.BringIntoView();
+                IdentityBox.Focus();
+                break;
+            case "routing":
+                ModeBox.BringIntoView();
+                ModeBox.Focus();
+                break;
+            case "activity":
+                LogBox.BringIntoView();
+                LogBox.Focus();
+                break;
+            case "support":
+                try { Process.Start(new ProcessStartInfo("https://vproxies.app") { UseShellExecute = true }); }
+                catch (Exception ex) { ShowError(ex); }
+                break;
+        }
+    }
+
+    private void SetActiveSidebarButton(WpfButton active)
+    {
+        foreach (var button in new[] { SidebarFleetButton, SidebarAccountButton, SidebarRoutingButton, SidebarActivityButton, SidebarSupportButton })
+        {
+            button.Background = Brush(button == active ? "#15324A" : "#00000000");
+            button.BorderBrush = Brush(button == active ? "#13E5FF" : "#00000000");
+            button.Foreground = Brush(button == active ? "#EAFBFF" : "#8FA3BE");
+        }
     }
 
     private async void Login_Click(object sender, RoutedEventArgs e)
