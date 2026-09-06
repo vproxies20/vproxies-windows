@@ -48,13 +48,16 @@ if (-not $Offline) {
 if (-not (Test-Path $singBoxExe)) { throw 'Missing runtime\sing-box.exe. Run without -Offline to fetch the pinned official dependency.' }
 if (-not (Test-Path $wintunDll)) { throw 'Missing runtime\wintun.dll. Run without -Offline to fetch the pinned signed dependency.' }
 & $singBoxExe version
+if ($LASTEXITCODE -ne 0) { throw "sing-box version check failed with exit code $LASTEXITCODE." }
 
 $publish = Join-Path $root 'artifacts\publish'
 dotnet publish (Join-Path $root 'src\VProxies.App\VProxies.App.csproj') -c Release -r win-x64 --self-contained true -o $publish `
   /p:PublishSingleFile=true /p:IncludeNativeLibrariesForSelfExtract=true /p:DebugType=None /p:DebugSymbols=false
+if ($LASTEXITCODE -ne 0) { throw "dotnet publish failed with exit code $LASTEXITCODE." }
 
 $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
 if (-not (Test-Path $iscc)) { throw 'Inno Setup 6 was not found.' }
 & $iscc (Join-Path $root 'installer\VProxies.iss')
+if ($LASTEXITCODE -ne 0) { throw "Inno Setup failed with exit code $LASTEXITCODE." }
 
 Get-FileHash (Join-Path $root 'artifacts\VProxiesSetup-0.8.1-win-x64.exe') -Algorithm SHA256
