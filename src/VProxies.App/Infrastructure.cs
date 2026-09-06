@@ -69,8 +69,14 @@ public sealed class VProxiesApiClient
     public async Task LoginAsync(string apiBase, string identity, string password, CancellationToken cancellationToken = default)
     {
         _http.BaseAddress = new Uri(apiBase.EndsWith('/') ? apiBase : apiBase + "/");
-        var body = identity.Contains('@') ? new { email = identity, password } : new { username = identity, password };
-        using var response = await _http.PostAsync("auth/login", new StringContent(JsonSerializer.Serialize(body), Encoding.UTF8, "application/json"), cancellationToken);
+        var body = new Dictionary<string, string>
+        {
+            [identity.Contains('@') ? "email" : "username"] = identity,
+            ["password"] = password
+        };
+        using var requestContent = new StringContent(JsonSerializer.Serialize(body), Encoding.UTF8);
+        requestContent.Headers.ContentType = new MediaTypeHeaderValue("application/json");
+        using var response = await _http.PostAsync("auth/login", requestContent, cancellationToken);
         var json = await response.Content.ReadAsStringAsync(cancellationToken);
         if (!response.IsSuccessStatusCode) throw new InvalidOperationException($"Login failed ({(int)response.StatusCode}): {ReadMessage(json)}");
         AccessToken = FindString(JsonDocument.Parse(json).RootElement, "access_token", "token") ?? throw new InvalidOperationException("Login response does not contain an access token.");
