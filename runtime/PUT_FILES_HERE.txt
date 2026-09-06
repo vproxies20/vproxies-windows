@@ -1,0 +1,9 @@
+The build script automatically downloads and verifies:
+
+  sing-box 1.14.0 for Windows AMD64
+  Wintun 0.14.1 signed AMD64 DLL
+
+Use build-windows.ps1 -Offline only when these verified files already exist:
+
+  runtime\sing-box.exe
+  runtime\wintun.dll

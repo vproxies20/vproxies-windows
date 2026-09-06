@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <AssemblyName>VProxies</AssemblyName>
+    <RootNamespace>VProxies</RootNamespace>
+    <Version>0.8.1</Version>
+    <Company>VProxies</Company>
+    <Product>VProxies for Windows</Product>
+  </PropertyGroup>
+</Project>

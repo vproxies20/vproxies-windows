@@ -1,0 +1,50 @@
+<Window x:Class="VProxies.MainWindow" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" Title="VProxies" Width="1080" Height="720" MinWidth="940" MinHeight="620" Background="#0B1020" Foreground="White" WindowStartupLocation="CenterScreen">
+  <Grid Margin="22">
+    <Grid.ColumnDefinitions><ColumnDefinition Width="280"/><ColumnDefinition Width="18"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+    <Border Grid.Column="0" Background="{StaticResource PanelBrush}" CornerRadius="16" Padding="20">
+      <StackPanel>
+        <TextBlock Text="VPROXIES" FontSize="27" FontWeight="Bold" Foreground="{StaticResource AccentBrush}"/>
+        <TextBlock Text="Secure traffic routing" Foreground="#96A3BC" Margin="0,2,0,24"/>
+        <TextBlock Text="ACCOUNT" Foreground="#71809F" FontWeight="SemiBold"/>
+        <TextBox x:Name="IdentityBox" ToolTip="Username or email"/>
+        <PasswordBox x:Name="LoginPasswordBox" ToolTip="Account password"/>
+        <Button x:Name="LoginButton" Content="Sign in" Click="Login_Click"/>
+        <Separator Background="#31405F" Margin="0,18"/>
+        <TextBlock Text="ROUTING MODE" Foreground="#71809F" FontWeight="SemiBold"/>
+        <ComboBox x:Name="ModeBox" SelectedIndex="0"><ComboBoxItem Content="Full system"/><ComboBoxItem Content="Rules only"/><ComboBoxItem Content="Selected applications"/></ComboBox>
+        <TextBlock Text="Applications (.exe, one per line)" Foreground="#96A3BC" Margin="0,10,0,0"/>
+        <TextBox x:Name="ApplicationsBox" Height="105" AcceptsReturn="True" VerticalScrollBarVisibility="Auto" Text="chrome.exe&#x0a;telegram.exe"/>
+        <CheckBox x:Name="RemoteDnsBox" Content="DNS through proxy" IsChecked="True" Margin="0,13,0,4"/>
+        <CheckBox x:Name="StrictRouteBox" Content="Prevent DNS leaks" IsChecked="True" Margin="0,4"/>
+      </StackPanel>
+    </Border>
+    <Grid Grid.Column="2">
+      <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+      <DockPanel Margin="0,0,0,16">
+        <StackPanel DockPanel.Dock="Left"><TextBlock Text="Connection" FontSize="26" FontWeight="SemiBold"/><TextBlock Text="Route Windows applications through your authorized proxy" Foreground="#96A3BC"/></StackPanel>
+        <Border x:Name="StatusBadge" DockPanel.Dock="Right" Background="#402B3449" CornerRadius="18" Padding="15,8" HorizontalAlignment="Right"><TextBlock x:Name="StatusText" Text="Disconnected" Foreground="#FF9BA8" FontWeight="Bold"/></Border>
+      </DockPanel>
+      <Border Grid.Row="1" Background="{StaticResource PanelBrush}" CornerRadius="16" Padding="20" Margin="0,0,0,16">
+        <Grid>
+          <Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition Width="14"/><ColumnDefinition/></Grid.ColumnDefinitions>
+          <StackPanel Grid.Column="0">
+            <TextBlock Text="PROXY SERVER" Foreground="#71809F" FontWeight="SemiBold"/>
+            <TextBlock Text="Protocol" Foreground="#96A3BC" Margin="0,9,0,0"/><ComboBox x:Name="ProtocolBox" SelectedIndex="3"><ComboBoxItem Content="HTTP"/><ComboBoxItem Content="HTTPS"/><ComboBoxItem Content="SOCKS4"/><ComboBoxItem Content="SOCKS5"/></ComboBox>
+            <TextBlock Text="Host or IP" Foreground="#96A3BC" Margin="0,8,0,0"/><TextBox x:Name="HostBox"/>
+            <TextBlock Text="Port" Foreground="#96A3BC" Margin="0,8,0,0"/><TextBox x:Name="PortBox" Text="1080"/>
+          </StackPanel>
+          <StackPanel Grid.Column="2">
+            <TextBlock Text="AUTHENTICATION" Foreground="#71809F" FontWeight="SemiBold"/>
+            <TextBlock Text="Username" Foreground="#96A3BC" Margin="0,9,0,0"/><TextBox x:Name="ProxyUsernameBox"/>
+            <TextBlock Text="Password" Foreground="#96A3BC" Margin="0,8,0,0"/><PasswordBox x:Name="ProxyPasswordBox"/>
+            <TextBlock Text="HTTPS SNI (optional)" Foreground="#96A3BC" Margin="0,8,0,0"/><TextBox x:Name="SniBox"/>
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,14,0,0"><Button Content="Check proxy" Click="CheckProxy_Click"/><Button x:Name="ConnectButton" Content="Connect" Background="#196F91" Click="Connect_Click"/><Button x:Name="DisconnectButton" Content="Disconnect" Click="Disconnect_Click" IsEnabled="False"/></StackPanel>
+          </StackPanel>
+        </Grid>
+      </Border>
+      <Border Grid.Row="2" Background="{StaticResource PanelBrush}" CornerRadius="16" Padding="18">
+        <Grid><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions><TextBlock Text="ACTIVITY LOG" Foreground="#71809F" FontWeight="SemiBold"/><TextBox Grid.Row="1" x:Name="LogBox" Margin="0,12,0,0" Background="#0D1425" IsReadOnly="True" AcceptsReturn="True" VerticalScrollBarVisibility="Auto" FontFamily="Consolas" FontSize="12" TextWrapping="Wrap"/></Grid>
+      </Border>
+    </Grid>
+  </Grid>
+</Window>

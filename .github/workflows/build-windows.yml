@@ -1,0 +1,38 @@
+name: Build VProxies Windows Installer
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Install .NET 8 SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Install Inno Setup 6
+        shell: powershell
+        run: choco install innosetup --yes --no-progress
+
+      - name: Build and package
+        shell: powershell
+        run: .\build-windows.ps1
+
+      - name: Upload installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: VProxiesSetup-0.8.1-win-x64
+          path: artifacts/VProxiesSetup-0.8.1-win-x64.exe
+          if-no-files-found: error
+          retention-days: 14
