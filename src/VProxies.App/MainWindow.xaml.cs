@@ -423,14 +423,14 @@ public partial class MainWindow : Window
         _trayIcon.Dispose();
         _exitRequested = true;
         Close();
-        Application.Current.Shutdown();
+        System.Windows.Application.Current.Shutdown();
     }
 
     private void ShowError(Exception ex)
     {
         var message = SanitizeMessage(ex.Message);
         AppendLog("ERROR: " + message);
-        MessageBox.Show(this, message, "VProxies", MessageBoxButton.OK, MessageBoxImage.Error);
+        System.Windows.MessageBox.Show(this, message, "VProxies", MessageBoxButton.OK, MessageBoxImage.Error);
     }
 
     private string SanitizeMessage(string message)
