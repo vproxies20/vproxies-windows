@@ -3,6 +3,8 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Threading;
+using MediaColor = System.Windows.Media.Color;
+using MediaColorConverter = System.Windows.Media.ColorConverter;
 
 namespace VProxies;
 
@@ -47,7 +49,7 @@ public partial class MainWindow : Window
             var result = await _api.LoginAsync(ApiBase, IdentityBox.Text.Trim(), LoginPasswordBox.Password);
             LoginPasswordBox.Clear();
             AccountStatusText.Text = FormatAccountStatus(result.UserName, result.Entitlement);
-            AccountStatusText.Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString(result.Entitlement.Active ? "#42E3A4" : "#FFC35A"));
+            AccountStatusText.Foreground = new SolidColorBrush((MediaColor)MediaColorConverter.ConvertFromString(result.Entitlement.Active ? "#42E3A4" : "#FFC35A"));
             AppendLog($"Signed in as {result.UserName}. Loading authorized Gateways...");
             await LoadGatewaysAsync();
         }
@@ -310,8 +312,8 @@ public partial class MainWindow : Window
     private void SetConnected(bool connected)
     {
         StatusText.Text = connected ? "Connected" : "Disconnected";
-        StatusText.Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString(connected ? "#62E6A6" : "#FF9BA8"));
-        StatusBadge.Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString(connected ? "#163D38" : "#2B3449"));
+        StatusText.Foreground = new SolidColorBrush((MediaColor)MediaColorConverter.ConvertFromString(connected ? "#62E6A6" : "#FF9BA8"));
+        StatusBadge.Background = new SolidColorBrush((MediaColor)MediaColorConverter.ConvertFromString(connected ? "#163D38" : "#2B3449"));
         ConnectButton.IsEnabled = !connected;
         DisconnectButton.IsEnabled = connected;
         GatewayConnectButton.IsEnabled = !connected && ProxyGrid.SelectedItem is AssignedProxy && GatewayProtocolBox.SelectedItem is string;
