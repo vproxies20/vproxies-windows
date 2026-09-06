@@ -31,12 +31,25 @@ public sealed record AssignedProxy
     public long? LatencyMs { get; init; }
     public string DisplayName => string.IsNullOrWhiteSpace(Name) ? $"Proxy #{Id}" : Name;
     public string LatencyText => LatencyMs is null ? "—" : $"{LatencyMs} ms";
+    public string LatencyBand => LatencyMs switch { null => "Unknown", < 50 => "Fast", <= 150 => "Medium", _ => "Slow" };
+    public bool IsOnline => Status.Equals("online", StringComparison.OrdinalIgnoreCase);
+    public string ProtocolListText => string.Join(" · ", Protocols.Append(Protocol).Where(x => !string.IsNullOrWhiteSpace(x)).Distinct(StringComparer.OrdinalIgnoreCase).Select(x => x.ToUpperInvariant()));
+    public string CountryFlag
+    {
+        get
+        {
+            var code = CountryCode.Trim().ToUpperInvariant();
+            return code.Length == 2 && code.All(x => x is >= 'A' and <= 'Z')
+                ? string.Concat(code.Select(x => char.ConvertFromUtf32(0x1F1E6 + x - 'A')))
+                : "◉";
+        }
+    }
     public string LocationText
     {
         get
         {
             var value = string.Join(", ", new[] { City, Country }.Where(x => !string.IsNullOrWhiteSpace(x)));
-            return string.IsNullOrWhiteSpace(value) ? "Chưa xác định" : value;
+            return string.IsNullOrWhiteSpace(value) ? "Unknown location" : value;
         }
     }
     public string EndpointText => ShowHostPort && !string.IsNullOrWhiteSpace(Host) && Port > 0 ? $"{Host}:{Port}" : "Hidden";
@@ -92,19 +105,24 @@ public sealed record RoutingSettings
     public string[] Applications { get; init; } = [];
     public string[] Domains { get; init; } = [];
     public bool StrictRoute { get; init; } = true;
-    public bool RemoteDns { get; init; } = true;
+    public bool RemoteDns { get; init; }
 }
 
 public sealed record StoredSettings
 {
     public string ApiBase { get; init; } = "https://api.vproxies.app/api/v1/";
     public string Identity { get; init; } = "";
+    public bool RememberAccountPassword { get; init; }
+    public string ProtectedAccountPassword { get; init; } = "";
     public ProxyProtocol Protocol { get; init; } = ProxyProtocol.SOCKS5;
     public string Host { get; init; } = "";
     public int Port { get; init; }
     public string Username { get; init; } = "";
     public string ProtectedPassword { get; init; } = "";
+    public bool RememberProxyPassword { get; init; }
     public string Sni { get; init; } = "";
     public RoutingMode Mode { get; init; } = RoutingMode.FullSystem;
     public string Applications { get; init; } = "";
+    public bool RemoteDns { get; init; }
+    public bool StrictRoute { get; init; } = true;
 }

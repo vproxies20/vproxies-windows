@@ -1,10 +1,13 @@
 using System.ComponentModel;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Documents;
 using System.Windows.Media;
 using System.Windows.Threading;
+using System.Text.RegularExpressions;
 using MediaColor = System.Windows.Media.Color;
 using MediaColorConverter = System.Windows.Media.ColorConverter;
+using WpfButton = System.Windows.Controls.Button;
 
 namespace VProxies;
 
@@ -17,6 +20,7 @@ public partial class MainWindow : Window
     private readonly TrayIcon _trayIcon = new();
     private readonly DispatcherTimer _entitlementTimer = new() { Interval = TimeSpan.FromSeconds(30) };
     private readonly HashSet<string> _sensitiveLogValues = new(StringComparer.OrdinalIgnoreCase);
+    private IReadOnlyList<AssignedProxy> _loadedProxies = [];
     private bool _loadingGateways;
     private bool _checkingEntitlement;
     private bool _exitRequested;
@@ -32,7 +36,7 @@ public partial class MainWindow : Window
         StateChanged += MainWindow_StateChanged;
         Closing += MainWindow_Closing;
         LoadSettings();
-        AppendLog("VProxies 0.9.3 ready. Sign in to load direct proxy connections.");
+        AppendLog("VProxies 1.0.0 ready. Sign in to load direct proxy connections.");
     }
 
     private async void Login_Click(object sender, RoutedEventArgs e)
@@ -47,7 +51,8 @@ public partial class MainWindow : Window
         try
         {
             var result = await _api.LoginAsync(ApiBase, IdentityBox.Text.Trim(), LoginPasswordBox.Password);
-            LoginPasswordBox.Clear();
+            SaveCurrentSettings();
+            if (RememberAccountPasswordBox.IsChecked != true) LoginPasswordBox.Clear();
             AccountStatusText.Text = FormatAccountStatus(result.UserName, result.Entitlement);
             AccountStatusText.Foreground = new SolidColorBrush((MediaColor)MediaColorConverter.ConvertFromString(result.Entitlement.Active ? "#42E3A4" : "#FFC35A"));
             AppendLog($"Signed in as {result.UserName}. Loading authorized Gateways...");
@@ -67,6 +72,7 @@ public partial class MainWindow : Window
         {
             var gateways = await _api.GetGatewaysAsync();
             GatewayBox.ItemsSource = gateways;
+            _loadedProxies = [];
             ProxyGrid.ItemsSource = null;
             GatewayProtocolBox.ItemsSource = null;
             ProxyCountText.Text = gateways.Count == 0 ? "No active Gateway is assigned to this account." : $"{gateways.Count} Gateway(s) available";
@@ -88,10 +94,11 @@ public partial class MainWindow : Window
         try
         {
             var proxies = await _api.GetProxiesAsync(gateway.Id);
-            ProxyGrid.ItemsSource = proxies;
+            _loadedProxies = proxies;
+            ApplyProxyFilter();
             if (proxies.Count > 0) ProxyGrid.SelectedIndex = 0;
             ProxyCountText.Text = proxies.Count == 0 ? "No proxy is assigned on this Gateway." : $"{proxies.Count} authorized proxy/proxies";
-            GatewayConnectButton.IsEnabled = proxies.Count > 0 && GatewayProtocolBox.SelectedItem is string && !_core.IsRunning;
+            GatewayConnectButton.IsEnabled = ProxyGrid.SelectedItem is AssignedProxy { IsOnline: true } && GatewayProtocolBox.SelectedItem is string && !_core.IsRunning;
             AppendLog($"Loaded {proxies.Count} authorized proxy/proxies from {gateway.Name}.");
         }
         catch (Exception ex)
@@ -134,7 +141,7 @@ public partial class MainWindow : Window
         GatewayProtocolBox.ItemsSource = protocols;
         var preferred = Array.FindIndex(protocols, x => x.Equals(proxy.Protocol, StringComparison.OrdinalIgnoreCase));
         GatewayProtocolBox.SelectedIndex = preferred >= 0 ? preferred : protocols.Length > 0 ? 0 : -1;
-        GatewayConnectButton.IsEnabled = protocols.Length > 0 && !_core.IsRunning;
+        GatewayConnectButton.IsEnabled = proxy.IsOnline && protocols.Length > 0 && !_core.IsRunning;
     }
 
     private async void GatewayConnect_Click(object sender, RoutedEventArgs e)
@@ -176,7 +183,7 @@ public partial class MainWindow : Window
                 Password = connection.Password
             };
             var location = string.Join(", ", new[] { connection.City, connection.Country }.Where(x => !string.IsNullOrWhiteSpace(x)));
-            var description = $"{selected.DisplayName} · {(string.IsNullOrWhiteSpace(location) ? "Chưa xác định" : location)} · {selectedProtocol.ToUpperInvariant()}";
+            var description = $"{selected.DisplayName} · {(string.IsNullOrWhiteSpace(location) ? "Unknown location" : location)} · {selectedProtocol.ToUpperInvariant()}";
             await ConnectProxyAsync(proxy, description, saveManualSettings: false, concealEndpoint: !connection.ShowHostPort);
             if (connection.ExpiresAt > 0)
             {
@@ -226,10 +233,32 @@ public partial class MainWindow : Window
         }
     }
 
+    private void ProxyRowConnect_Click(object sender, RoutedEventArgs e)
+    {
+        if (!_core.IsRunning && sender is WpfButton { CommandParameter: AssignedProxy { IsOnline: true } proxy })
+        {
+            ProxyGrid.SelectedItem = proxy;
+            ProxyGrid.ScrollIntoView(proxy);
+            GatewayConnect_Click(sender, e);
+        }
+    }
+
+    private void ProxySearchBox_TextChanged(object sender, TextChangedEventArgs e) => ApplyProxyFilter();
+
+    private void ApplyProxyFilter()
+    {
+        var query = ProxySearchBox.Text.Trim();
+        IReadOnlyList<AssignedProxy> filtered = string.IsNullOrWhiteSpace(query) ? _loadedProxies : _loadedProxies.Where(proxy =>
+            new[] { proxy.DisplayName, proxy.Country, proxy.City, proxy.Protocol, proxy.ProtocolListText, proxy.EndpointText }
+                .Any(value => value.Contains(query, StringComparison.OrdinalIgnoreCase))).ToArray();
+        ProxyGrid.ItemsSource = filtered;
+        ProxyCountText.Text = _loadedProxies.Count == 0 ? "No authorized proxies" : $"{filtered.Count} shown · {_loadedProxies.Count} authorized";
+    }
+
     private async Task ConnectProxyAsync(ProxySettings proxy, string description, bool saveManualSettings, bool concealEndpoint)
     {
         var routing = ReadRouting();
-        if (saveManualSettings) SaveSettings(proxy, routing);
+        if (saveManualSettings) SaveCurrentSettings(proxy, routing);
         _sensitiveLogValues.Clear();
         if (concealEndpoint)
         {
@@ -239,12 +268,15 @@ public partial class MainWindow : Window
         var config = SingBoxConfigBuilder.Build(proxy, routing);
         await _core.StartAsync(config);
         SetConnected(true);
+        ConnectionDetailText.Text = description;
         AppendLog($"Connected: {description} · {routing.Mode}.");
     }
 
     private async void Disconnect_Click(object sender, RoutedEventArgs e)
     {
         DisconnectButton.IsEnabled = false;
+        GatewayDisconnectButton.IsEnabled = false;
+        HeaderDisconnectButton.IsEnabled = false;
         try
         {
             await _core.StopAsync();
@@ -286,37 +318,75 @@ public partial class MainWindow : Window
     {
         var s = _store.Load();
         IdentityBox.Text = s.Identity;
+        RememberAccountPasswordBox.IsChecked = s.RememberAccountPassword;
+        LoginPasswordBox.Password = s.RememberAccountPassword ? SecretStore.Unprotect(s.ProtectedAccountPassword) : "";
         ProtocolBox.SelectedIndex = (int)s.Protocol;
         HostBox.Text = s.Host;
         PortBox.Text = s.Port > 0 ? s.Port.ToString() : "1080";
         ProxyUsernameBox.Text = s.Username;
-        ProxyPasswordBox.Password = SecretStore.Unprotect(s.ProtectedPassword);
+        RememberProxyPasswordBox.IsChecked = s.RememberProxyPassword;
+        ProxyPasswordBox.Password = s.RememberProxyPassword ? SecretStore.Unprotect(s.ProtectedPassword) : "";
         SniBox.Text = s.Sni;
         ModeBox.SelectedIndex = (int)s.Mode;
         ApplicationsBox.Text = s.Applications;
+        RemoteDnsBox.IsChecked = s.RemoteDns;
+        StrictRouteBox.IsChecked = s.StrictRoute;
     }
 
-    private void SaveSettings(ProxySettings proxy, RoutingSettings routing) => _store.Save(new StoredSettings
+    private void SaveCurrentSettings(ProxySettings? proxy = null, RoutingSettings? routing = null)
     {
-        Identity = IdentityBox.Text.Trim(),
-        Protocol = proxy.Protocol,
-        Host = proxy.Host,
-        Port = proxy.Port,
-        Username = proxy.Username,
-        ProtectedPassword = string.IsNullOrEmpty(proxy.Password) ? "" : SecretStore.Protect(proxy.Password),
-        Sni = proxy.Sni,
-        Mode = routing.Mode,
-        Applications = ApplicationsBox.Text
-    });
+        proxy ??= TryReadProxy();
+        routing ??= new RoutingSettings
+        {
+            Mode = ModeBox.SelectedIndex >= 0 ? (RoutingMode)ModeBox.SelectedIndex : RoutingMode.FullSystem,
+            Applications = ApplicationsBox.Text.Split(['\r', '\n', ',', ';'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries),
+            StrictRoute = StrictRouteBox.IsChecked == true,
+            RemoteDns = RemoteDnsBox.IsChecked == true
+        };
+        var rememberAccount = RememberAccountPasswordBox.IsChecked == true;
+        var rememberProxy = RememberProxyPasswordBox.IsChecked == true;
+        _store.Save(new StoredSettings
+        {
+            Identity = IdentityBox.Text.Trim(),
+            RememberAccountPassword = rememberAccount,
+            ProtectedAccountPassword = rememberAccount && !string.IsNullOrEmpty(LoginPasswordBox.Password) ? SecretStore.Protect(LoginPasswordBox.Password) : "",
+            Protocol = proxy.Protocol,
+            Host = proxy.Host,
+            Port = proxy.Port,
+            Username = proxy.Username,
+            RememberProxyPassword = rememberProxy,
+            ProtectedPassword = rememberProxy && !string.IsNullOrEmpty(proxy.Password) ? SecretStore.Protect(proxy.Password) : "",
+            Sni = proxy.Sni,
+            Mode = routing.Mode,
+            Applications = ApplicationsBox.Text,
+            RemoteDns = routing.RemoteDns,
+            StrictRoute = routing.StrictRoute
+        });
+    }
+
+    private ProxySettings TryReadProxy()
+    {
+        _ = int.TryParse(PortBox.Text, out var port);
+        return new ProxySettings
+        {
+            Protocol = ProtocolBox.SelectedIndex >= 0 ? (ProxyProtocol)ProtocolBox.SelectedIndex : ProxyProtocol.SOCKS5,
+            Host = HostBox.Text.Trim(), Port = port, Username = ProxyUsernameBox.Text.Trim(),
+            Password = ProxyPasswordBox.Password, Sni = SniBox.Text.Trim()
+        };
+    }
 
     private void SetConnected(bool connected)
     {
         StatusText.Text = connected ? "Connected" : "Disconnected";
         StatusText.Foreground = new SolidColorBrush((MediaColor)MediaColorConverter.ConvertFromString(connected ? "#62E6A6" : "#FF9BA8"));
         StatusBadge.Background = new SolidColorBrush((MediaColor)MediaColorConverter.ConvertFromString(connected ? "#163D38" : "#2B3449"));
+        StatusDot.Fill = new SolidColorBrush((MediaColor)MediaColorConverter.ConvertFromString(connected ? "#3BE3A0" : "#FF718B"));
+        if (!connected) ConnectionDetailText.Text = "No proxy is active";
         ConnectButton.IsEnabled = !connected;
         DisconnectButton.IsEnabled = connected;
-        GatewayConnectButton.IsEnabled = !connected && ProxyGrid.SelectedItem is AssignedProxy && GatewayProtocolBox.SelectedItem is string;
+        GatewayDisconnectButton.IsEnabled = connected;
+        HeaderDisconnectButton.IsEnabled = connected;
+        GatewayConnectButton.IsEnabled = !connected && ProxyGrid.SelectedItem is AssignedProxy { IsOnline: true } && GatewayProtocolBox.SelectedItem is string;
         if (connected && _api.IsSignedIn) _entitlementTimer.Start(); else _entitlementTimer.Stop();
     }
 
@@ -376,6 +446,8 @@ public partial class MainWindow : Window
         return $"{userName}\nAccess: {entitlement.Status}";
     }
 
+    private static readonly Regex AnsiPattern = new(@"\x1B\[[0-?]*[ -/]*[@-~]", RegexOptions.Compiled);
+
     private void AppendLog(string message)
     {
         if (!Dispatcher.CheckAccess())
@@ -384,9 +456,32 @@ public partial class MainWindow : Window
             return;
         }
 
-        message = SanitizeMessage(message);
-        LogBox.AppendText($"{DateTime.Now:HH:mm:ss}  {message}\r\n");
-        LogBox.ScrollToEnd();
+        message = AnsiPattern.Replace(SanitizeMessage(message), "").Trim();
+        var level = message.Contains("ERROR", StringComparison.OrdinalIgnoreCase) || message.Contains("FATAL", StringComparison.OrdinalIgnoreCase) ? "ERROR"
+            : message.Contains("WARN", StringComparison.OrdinalIgnoreCase) ? "WARN" : "INFO";
+        var color = level == "ERROR" ? "#FF6689" : level == "WARN" ? "#FFC857" : "#45DFA2";
+        var paragraph = new Paragraph { Margin = new Thickness(0, 0, 0, 3) };
+        paragraph.Inlines.Add(new Run(DateTime.Now.ToString("HH:mm:ss")) { Foreground = Brush("#7186A3") });
+        paragraph.Inlines.Add(new Run($"  {level,-5}  ") { Foreground = Brush(color), FontWeight = FontWeights.Bold });
+        paragraph.Inlines.Add(new Run(message) { Foreground = Brush("#D8E5F5") });
+        LogBox.Document.Blocks.Add(paragraph);
+        while (LogBox.Document.Blocks.Count > 400 && LogBox.Document.Blocks.FirstBlock is Block first) LogBox.Document.Blocks.Remove(first);
+        LogSummaryText.Text = $"  ·  {level}";
+        if (AutoScrollBox.IsChecked == true) LogBox.ScrollToEnd();
+    }
+
+    private static SolidColorBrush Brush(string color) => new((MediaColor)MediaColorConverter.ConvertFromString(color));
+
+    private void CopyLog_Click(object sender, RoutedEventArgs e)
+    {
+        var text = new TextRange(LogBox.Document.ContentStart, LogBox.Document.ContentEnd).Text.Trim();
+        if (!string.IsNullOrWhiteSpace(text)) System.Windows.Clipboard.SetText(text);
+    }
+
+    private void ClearLog_Click(object sender, RoutedEventArgs e)
+    {
+        LogBox.Document.Blocks.Clear();
+        LogSummaryText.Text = "  ·  Cleared";
     }
 
     private void MainWindow_StateChanged(object? sender, EventArgs e)
@@ -418,6 +513,7 @@ public partial class MainWindow : Window
         if (_shutdownInProgress) return;
         _shutdownInProgress = true;
         _entitlementTimer.Stop();
+        try { SaveCurrentSettings(); } catch { }
         try { await _core.StopAsync(); }
         catch (Exception ex) { AppendLog("Shutdown cleanup warning: " + ex.Message); }
         _sensitiveLogValues.Clear();
