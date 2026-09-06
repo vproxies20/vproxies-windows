@@ -19,7 +19,7 @@
           </StackPanel>
         </StackPanel>
         <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
-          <TextBlock Text="0.9.1" Foreground="#7186A3" VerticalAlignment="Center" Margin="0,0,15,0"/>
+          <TextBlock Text="0.9.2" Foreground="#7186A3" VerticalAlignment="Center" Margin="0,0,15,0"/>
           <Border x:Name="StatusBadge" Background="#2B3449" CornerRadius="18" Padding="15,8">
             <StackPanel Orientation="Horizontal"><Ellipse Width="8" Height="8" Fill="#FF718B" Margin="0,0,8,0"/><TextBlock x:Name="StatusText" Text="Disconnected" Foreground="#FF9BA8" FontWeight="Bold"/></StackPanel>
           </Border>
@@ -80,18 +80,22 @@
                 </Grid>
 
                 <Grid Grid.Row="1" Margin="0,17,0,13">
-                  <Grid.ColumnDefinitions><ColumnDefinition Width="2*"/><ColumnDefinition Width="14"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                  <Grid.ColumnDefinitions><ColumnDefinition Width="2*"/><ColumnDefinition Width="14"/><ColumnDefinition Width="*"/><ColumnDefinition Width="14"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
                   <StackPanel>
                     <TextBlock Text="Gateway" Foreground="#B4C2D5"/>
                     <ComboBox x:Name="GatewayBox" DisplayMemberPath="DisplayName" SelectionChanged="GatewayBox_SelectionChanged"/>
                   </StackPanel>
-                  <Border Grid.Column="2" Background="#0A2430" BorderBrush="#1E5260" BorderThickness="1" CornerRadius="10" Padding="12,7" Margin="0,5">
-                    <StackPanel><TextBlock Text="DIRECT DELIVERY" Foreground="{StaticResource AccentBrush}" FontWeight="Bold" FontSize="11"/><TextBlock Text="Protocol is selected from the API response" Foreground="{StaticResource MutedBrush}" FontSize="11" TextWrapping="Wrap"/></StackPanel>
+                  <StackPanel Grid.Column="2">
+                    <TextBlock Text="Connection protocol" Foreground="#B4C2D5"/>
+                    <ComboBox x:Name="GatewayProtocolBox" ToolTip="Protocols supported by the selected proxy"/>
+                  </StackPanel>
+                  <Border Grid.Column="4" Background="#0A2430" BorderBrush="#1E5260" BorderThickness="1" CornerRadius="10" Padding="12,7" Margin="0,5">
+                    <StackPanel><TextBlock Text="DIRECT" Foreground="{StaticResource AccentBrush}" FontWeight="Bold" FontSize="11"/><TextBlock Text="Device → source proxy" Foreground="{StaticResource MutedBrush}" FontSize="11"/></StackPanel>
                   </Border>
                 </Grid>
 
                 <Border Grid.Row="2" Background="#081422" BorderBrush="#1C3048" BorderThickness="1" CornerRadius="13" Padding="1">
-                  <DataGrid x:Name="ProxyGrid" AutoGenerateColumns="False" IsReadOnly="True" SelectionMode="Single"
+                  <DataGrid x:Name="ProxyGrid" AutoGenerateColumns="False" IsReadOnly="True" SelectionMode="Single" SelectionChanged="ProxyGrid_SelectionChanged"
                     Background="#081422" Foreground="#EAF3FF" RowBackground="#0B1828" AlternatingRowBackground="#0E1D2E"
                     BorderThickness="0" GridLinesVisibility="Horizontal" HorizontalGridLinesBrush="#1A2B40"
                     HeadersVisibility="Column" CanUserAddRows="False" SelectionUnit="FullRow">

@@ -1,4 +1,4 @@
-# VProxies for Windows — clean-room prototype 0.9.1
+# VProxies for Windows — clean-room prototype 0.9.2
 
 This is an independent Windows proxy-routing prototype. It does not contain, derive from, or redistribute Proxifier code or drivers.
 
@@ -14,6 +14,7 @@ This is an independent Windows proxy-routing prototype. It does not contain, der
 - Loads active Gateways and the proxies authorized for the signed-in account.
 - Requests direct source connection data from `/connections` without exposing the Gateway Management API key.
 - Displays country/city and obeys catalog host/port visibility policy.
+- Lets the user choose HTTP, HTTPS, SOCKS4 or SOCKS5 from the selected proxy's advertised `protocols[]` list and validates the choice again against `/connections`.
 - Branded VProxies interface and application/installer icon.
 - DPAPI encryption for saved proxy passwords.
 - Inno Setup packaging script.
@@ -23,7 +24,7 @@ This is an independent Windows proxy-routing prototype. It does not contain, der
 - The provided source has not been compiled in this Linux workspace because no Windows/.NET cross-build toolchain is installed here.
 - The build script downloads only pinned official sing-box and Wintun archives and rejects either archive if its SHA-256 differs.
 - Gateway proxy mode follows the Website/Admin patch 010 direct-delivery contract. Real traffic still requires an active account, an enabled Gateway, an available proxy, and a successful `/connections` response from production.
-- Version 0.9.1 connects the device directly to the selected source proxy. It never falls back to the old Gateway relay endpoint.
+- Version 0.9.2 connects the device directly to the selected source proxy. It never falls back to the old Gateway relay endpoint.
 - Source credentials remain in memory and the temporary sing-box configuration is removed immediately after startup and again during disconnect cleanup.
 - The app runs the core under the elevated UI process. A hardened release should move the core into a signed Windows Service with authenticated IPC.
 - Code signing is not included. Production installers and binaries should be signed with your own certificate.
@@ -47,12 +48,12 @@ Set-ExecutionPolicy -Scope Process Bypass
 The installer will be created at:
 
 ```text
-artifacts\VProxiesSetup-0.9.1-win-x64.exe
+artifacts\VProxiesSetup-0.9.2-win-x64.exe
 ```
 
 ### Build with GitHub Actions
 
-Push this directory to a GitHub repository, open **Actions → Build VProxies Windows Installer → Run workflow**, then download the `VProxiesSetup-0.9.1-win-x64` artifact. The workflow installs .NET 8 and Inno Setup, downloads the pinned networking components, verifies their hashes, builds the application, and uploads the resulting installer.
+Push this directory to a GitHub repository, open **Actions → Build VProxies Windows Installer → Run workflow**, then download the `VProxiesSetup-0.9.2-win-x64` artifact. The workflow installs .NET 8 and Inno Setup, downloads the pinned networking components, verifies their hashes, builds the application, and uploads the resulting installer.
 
 ## Safety behavior
 

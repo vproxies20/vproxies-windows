@@ -23,7 +23,7 @@ public partial class MainWindow : Window
         _entitlementTimer.Tick += EntitlementTimer_Tick;
         LoadSettings();
         Closed += (_, _) => _core.Dispose();
-        AppendLog("VProxies 0.9.1 ready. Sign in to load direct proxy connections.");
+        AppendLog("VProxies 0.9.2 ready. Sign in to load direct proxy connections.");
     }
 
     private async void Login_Click(object sender, RoutedEventArgs e)
@@ -59,6 +59,7 @@ public partial class MainWindow : Window
             var gateways = await _api.GetGatewaysAsync();
             GatewayBox.ItemsSource = gateways;
             ProxyGrid.ItemsSource = null;
+            GatewayProtocolBox.ItemsSource = null;
             ProxyCountText.Text = gateways.Count == 0 ? "No active Gateway is assigned to this account." : $"{gateways.Count} Gateway(s) available";
             AppendLog($"Loaded {gateways.Count} Gateway(s).");
             if (gateways.Count > 0) GatewayBox.SelectedIndex = 0;
@@ -81,12 +82,13 @@ public partial class MainWindow : Window
             ProxyGrid.ItemsSource = proxies;
             if (proxies.Count > 0) ProxyGrid.SelectedIndex = 0;
             ProxyCountText.Text = proxies.Count == 0 ? "No proxy is assigned on this Gateway." : $"{proxies.Count} authorized proxy/proxies";
-            GatewayConnectButton.IsEnabled = proxies.Count > 0 && !_core.IsRunning;
+            GatewayConnectButton.IsEnabled = proxies.Count > 0 && GatewayProtocolBox.SelectedItem is string && !_core.IsRunning;
             AppendLog($"Loaded {proxies.Count} authorized proxy/proxies from {gateway.Name}.");
         }
         catch (Exception ex)
         {
             ProxyGrid.ItemsSource = null;
+            GatewayProtocolBox.ItemsSource = null;
             ProxyCountText.Text = "Could not load proxies.";
             ShowError(ex);
         }
@@ -104,11 +106,38 @@ public partial class MainWindow : Window
         await LoadProxiesAsync(gateway);
     }
 
+    private void ProxyGrid_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (ProxyGrid.SelectedItem is not AssignedProxy proxy)
+        {
+            GatewayProtocolBox.ItemsSource = null;
+            GatewayConnectButton.IsEnabled = false;
+            return;
+        }
+
+        var protocols = proxy.Protocols
+            .Append(proxy.Protocol)
+            .Select(x => x.Trim().ToLowerInvariant())
+            .Where(IsSupportedDirectProtocol)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Select(x => x.ToUpperInvariant())
+            .ToArray();
+        GatewayProtocolBox.ItemsSource = protocols;
+        var preferred = Array.FindIndex(protocols, x => x.Equals(proxy.Protocol, StringComparison.OrdinalIgnoreCase));
+        GatewayProtocolBox.SelectedIndex = preferred >= 0 ? preferred : protocols.Length > 0 ? 0 : -1;
+        GatewayConnectButton.IsEnabled = protocols.Length > 0 && !_core.IsRunning;
+    }
+
     private async void GatewayConnect_Click(object sender, RoutedEventArgs e)
     {
         if (GatewayBox.SelectedItem is not GatewayInfo gateway || ProxyGrid.SelectedItem is not AssignedProxy selected)
         {
             ShowError(new InvalidOperationException("Select a Gateway and proxy first."));
+            return;
+        }
+        if (GatewayProtocolBox.SelectedItem is not string selectedProtocol)
+        {
+            ShowError(new InvalidOperationException("This proxy does not advertise a supported connection protocol."));
             return;
         }
 
@@ -125,8 +154,8 @@ public partial class MainWindow : Window
             if (string.IsNullOrWhiteSpace(connection.Host) || connection.Port is < 1 or > 65535)
                 throw new InvalidOperationException("The API did not return a valid direct proxy endpoint.");
 
-            var protocol = ResolveDirectProtocol(connection);
-            if (connection.Protocol.Equals("https", StringComparison.OrdinalIgnoreCase))
+            var protocol = ResolveDirectProtocol(connection, selectedProtocol);
+            if (selectedProtocol.Equals("https", StringComparison.OrdinalIgnoreCase))
                 AppendLog("HTTPS source label is using HTTP CONNECT transport; upstream TLS metadata is not advertised by the API.");
 
             var proxy = new ProxySettings
@@ -138,7 +167,7 @@ public partial class MainWindow : Window
                 Password = connection.Password
             };
             var location = string.Join(", ", new[] { connection.City, connection.Country }.Where(x => !string.IsNullOrWhiteSpace(x)));
-            var description = $"{selected.DisplayName} · {(string.IsNullOrWhiteSpace(location) ? "Chưa xác định" : location)} · {connection.Protocol.ToUpperInvariant()}";
+            var description = $"{selected.DisplayName} · {(string.IsNullOrWhiteSpace(location) ? "Chưa xác định" : location)} · {selectedProtocol.ToUpperInvariant()}";
             await ConnectProxyAsync(proxy, description, saveManualSettings: false, concealEndpoint: !connection.ShowHostPort);
             if (connection.ExpiresAt > 0)
             {
@@ -155,7 +184,7 @@ public partial class MainWindow : Window
         }
         finally
         {
-            if (!_core.IsRunning) GatewayConnectButton.IsEnabled = ProxyGrid.SelectedItem is AssignedProxy;
+            if (!_core.IsRunning) GatewayConnectButton.IsEnabled = ProxyGrid.SelectedItem is AssignedProxy && GatewayProtocolBox.SelectedItem is string;
         }
     }
 
@@ -273,22 +302,29 @@ public partial class MainWindow : Window
         StatusBadge.Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString(connected ? "#163D38" : "#2B3449"));
         ConnectButton.IsEnabled = !connected;
         DisconnectButton.IsEnabled = connected;
-        GatewayConnectButton.IsEnabled = !connected && ProxyGrid.SelectedItem is AssignedProxy;
+        GatewayConnectButton.IsEnabled = !connected && ProxyGrid.SelectedItem is AssignedProxy && GatewayProtocolBox.SelectedItem is string;
         if (connected && _api.IsSignedIn) _entitlementTimer.Start(); else _entitlementTimer.Stop();
     }
 
-    private static ProxyProtocol ResolveDirectProtocol(DirectConnectionInfo connection)
+    private static ProxyProtocol ResolveDirectProtocol(DirectConnectionInfo connection, string requestedProtocol)
     {
-        var advertised = connection.Protocol.Trim().ToLowerInvariant();
-        var allowed = connection.Protocols.Select(x => x.Trim().ToLowerInvariant()).Where(x => x.Length > 0).ToArray();
-        if (allowed.Length > 0 && !allowed.Contains(advertised)) advertised = allowed.FirstOrDefault(IsSupportedDirectProtocol) ?? advertised;
-        return advertised switch
+        var requested = requestedProtocol.Trim().ToLowerInvariant();
+        var allowed = connection.Protocols
+            .Append(connection.Protocol)
+            .Select(x => x.Trim().ToLowerInvariant())
+            .Where(x => x.Length > 0)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        if (!IsSupportedDirectProtocol(requested)) throw new InvalidOperationException($"Unsupported direct proxy protocol: {requestedProtocol}");
+        if (allowed.Length > 0 && !allowed.Contains(requested, StringComparer.OrdinalIgnoreCase))
+            throw new InvalidOperationException($"The selected protocol {requestedProtocol.ToUpperInvariant()} is no longer available. Refresh the proxy list.");
+        return requested switch
         {
             "http" => ProxyProtocol.HTTP,
             "https" => ProxyProtocol.HTTP,
             "socks4" => ProxyProtocol.SOCKS4,
             "socks5" => ProxyProtocol.SOCKS5,
-            _ => throw new InvalidOperationException($"Unsupported direct proxy protocol: {connection.Protocol}")
+            _ => throw new InvalidOperationException($"Unsupported direct proxy protocol: {requestedProtocol}")
         };
     }
 
